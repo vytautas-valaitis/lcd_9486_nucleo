@@ -1,5 +1,36 @@
 #include "stm32f7xx_nucleo_144.h"
 
+#define TFTLCD_DELAY8 0x7f
+
+static void delay(uint16_t time) {
+  for(int i = 0; i < time * 100; i++) {};
+}
+
+static void write_table(const uint8_t *table, int16_t size) {
+  uint8_t *p = table;
+  while (size > 0) {
+    uint8_t cmd = *(p++);
+    uint8_t len = *(p++);
+    if (cmd == TFTLCD_DELAY8) {
+      delay(len);
+      len = 0;
+    } else {
+      HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_RESET); //CS_ACTIVE;
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); //CD_COMMAND;
+      lcd_write_8(cmd);
+      delay(1);
+      for (uint8_t d = 0; d++ < len; ) {
+        uint8_t x = *(p++);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); //CD_DATA;
+        lcd_write_8(x);
+        delay(20);
+      }
+         HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_SET); //CS_IDLE;
+      }
+        size -= len + 2;
+    }
+}
+
 int main(void)
 {
 	BSP_LED_Init(LED1);
@@ -19,22 +50,48 @@ int main(void)
   HAL_GPIO_WritePin(GPIOF, GPIO_PIN_5, GPIO_PIN_SET); // RESET_IDLE;
   for(int i = 0; i < 2000; i++) {};
   
+  static const uint8_t regs[] = {
+    0xC0,   2,  0x0d, 0x0d,              // power control 1
+    0xC1,   2,  0x43, 0x00,              // power control 2
+    0xC2,   1,  0x00,                    // power control 3
+    0xC5,   4,  0x00, 0x48, 0x00, 0x48,  // vcom control 1
+    0xB4,   1,  0x00,                    // display inversion control
+    0xB6,   3,  0x02, 0x02, 0x3B,        // display function control
+    0xE0,  15,  0x0F, 0x21, 0x1C, 0x0B, 0x0E, 0x08, 0x49, 0x98, 0x38, 0x09, 0x11, 0x03, 0x14, 0x10, 0x00, // positive gamma control
+    0xE1,  15,  0x0F, 0x2F, 0x2B, 0x0C, 0x0E, 0x06, 0x47, 0x76, 0x37, 0x07, 0x11, 0x04, 0x23, 0x1E, 0x00  // negative gamma control
+  };
   
+  static const uint8_t t0[] = {
+    0x3a,  1,  0x55,        // interface pixel format
+    0xB6,  2,  0x00, 0x22,  // display function control
+    0x36,  1,  0xa8,        // memory access control, rotation, 0x08, 0x68, 0xc8, 0xa8
+    0x11,  0                // sleep out
+  };
+  
+  static const uint8_t td[] = {
+    0x2c, 50,  0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, // memory write
+               0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
+               0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
+               0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
+               0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8
+  };
+
+  static const uint8_t t1[] = {
+    0x29,  0  // display on
+  };
+  
+  write_table(&regs, sizeof(regs));
+  write_table(&t0, sizeof(t0));
+  write_table(&td, sizeof(td));
+  write_table(&t1, sizeof(t1));
+  
+  /*
   HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_RESET); //CS_ACTIVE;
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); //CD_COMMAND;
   lcd_write_8(0x11);
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET); // WR_ACTIVE;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET); // WR_IDLE;
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); //CD_DATA;
   HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_SET); //CS_IDLE;
-  
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_RESET); //CS_ACTIVE;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); //CD_COMMAND; 
-  lcd_write_8(0x29);
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET); // WR_ACTIVE;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET); // WR_IDLE;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); //CD_DATA;
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_SET); //CS_IDLE;
+  */
    
 	for(;;)
 	{
@@ -56,6 +113,9 @@ void lcd_write_8(uint8_t data) {
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, ((data >> 5 & 1) ? GPIO_PIN_SET : GPIO_PIN_RESET));
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, ((data >> 6 & 1) ? GPIO_PIN_SET : GPIO_PIN_RESET));
   HAL_GPIO_WritePin(GPIOF, GPIO_PIN_13, ((data >> 7 & 1) ? GPIO_PIN_SET : GPIO_PIN_RESET));
+
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET); // WR_ACTIVE;
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET); // WR_IDLE;
 }
  
 void lcd_gpio_init(void) {
