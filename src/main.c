@@ -6,6 +6,18 @@ static void delay(uint16_t time) {
   for(int i = 0; i < time * 100; i++) {};
 }
 
+static void fill_black() {
+  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_RESET); //CS_ACTIVE;
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); //CD_COMMAND;
+  lcd_write_8(0x2c);
+  for(int i = 0; i < 480*640; i++) {       
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); //CD_DATA;
+    lcd_write_8(0x00);
+    //delay(20);
+  }
+  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_SET); //CS_IDLE;
+}
+
 static void write_table(const uint8_t *table, int16_t size) {
   uint8_t *p = table;
   while (size > 0) {
@@ -64,7 +76,7 @@ int main(void)
   static const uint8_t t0[] = {
     0x3a,  1,  0x55,        // interface pixel format
     0xB6,  2,  0x00, 0x22,  // display function control
-    0x36,  1,  0xa8,        // memory access control, rotation, 0x08, 0x68, 0xc8, 0xa8
+    0x36,  1,  0x08,        // memory access control, rotation, 0x08, 0x68, 0xc8, 0xa8
     0x11,  0                // sleep out
   };
   
@@ -85,6 +97,7 @@ int main(void)
   write_table(&td, sizeof(td));
   write_table(&t1, sizeof(t1));
   
+  fill_black();
   /*
   HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_RESET); //CS_ACTIVE;
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); //CD_COMMAND;
@@ -96,11 +109,11 @@ int main(void)
 	for(;;)
 	{
 		BSP_LED_Toggle(LED1);
-		for(int i = 0; i < 100000; i++) {};
-		BSP_LED_Toggle(LED2);
-		for(int i = 0; i < 100000; i++) {};
-		BSP_LED_Toggle(LED3);
-		for(int i = 0; i < 100000; i++) {};
+		for(int i = 0; i < 300000; i++) {};
+		//BSP_LED_Toggle(LED2);
+		//for(int i = 0; i < 100000; i++) {};
+		//BSP_LED_Toggle(LED3);
+		//for(int i = 0; i < 100000; i++) {};
 }
 }
 
