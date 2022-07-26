@@ -59,7 +59,6 @@ MCUFLAGS += -mfloat-abi=hard -mfpu=fpv5-sp-d16
 MCUFLAGS += -mthumb
 
 DEBUG_OPTIMIZE_FLAGS = -O0 -g -ggdb3
-#DEBUG_OPTIMIZE_FLAGS = -O2
 
 CFLAGS = -std=c11
 CFLAGS += -Wall -Wextra --pedantic
@@ -88,34 +87,15 @@ all: $(PROJECT).bin $(PROJECT).hex $(PROJECT).asm
 
 clean:
 	$(RM) $(OBJS) $(OBJS:$.o=$.lst) $(OBJS:$.o=$.su) $(PROJECT).elf $(PROJECT).bin $(PROJECT).hex $(PROJECT).map $(PROJECT).asm
+  
+flash:
+	st-flash write $(PROJECT).bin $(FLASH_OFFSET)
+	st-flash reset
 
-BMP_DEVICE ?= /dev/ttyACM0
-JLINK_CPUNAME ?= STM32F737ZI
-flash-bmp: $(PROJECT).elf
-	# assuming:
-	#  * Black Magic Probe connected to $(BMP_DEVICE)
-	#  * compatible board connected via SWD
-	$(GDB) $(PROJECT).elf \
-		-ex 'set confirm off' \
-		-ex 'target extended-remote $(BMP_DEVICE)' \
-		-ex 'mon hard_srst' \
-		-ex 'mon swdp_scan' \
-		-ex 'attach 1' \
-		-ex 'load' \
-		-ex 'compare-sections' \
-		-ex 'quit'
-
-flash-jlink: $(PROJECT).bin
-	# assuming:
-	#  * any type of Segger JLINK that is usable with an STM32
-	#    (e.g. the embedded jlink on the DK)
-	#  * compatible board connected via SWD
-	#  * installed JLink Software
-	printf "erase\nloadfile $< ${FLASH_OFFSET}\nr\nq\n" | JLinkExe -nogui 1 -autoconnect 1 -device $(JLINK_CPUNAME) -if swd -speed 4000
-
-erase-jlink:
-	printf "erase\nr\nq\n" | JLinkExe -nogui 1 -autoconnect 1 -device $(JLINK_CPUNAME) -if swd -speed 4000
-
+erase:
+	st-flash erase
+	st-flash reset
+	
 ################
 # dependency graphs for wildcard rules
 
@@ -126,7 +106,7 @@ $(PROJECT).elf: $(OBJS)
 
 %.elf:
 	$(LD) $(OBJS) $(LDFLAGS) -o $@
-	$(SIZE) -A $@
+	$(SIZE) -Ax $@
 
 %.bin: %.elf
 	$(OBJCOPY) -O binary $< $@
