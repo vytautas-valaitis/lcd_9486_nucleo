@@ -4,7 +4,49 @@
 
 #define TFTLCD_DELAY8 0x7f
 
+#define RST_L GPIOF -> BSRR = 32 << 16
+#define RST_H GPIOF -> BSRR = 32
 
+#define RD_L GPIOA -> BSRR = 8 << 16
+#define RD_H GPIOA -> BSRR = 8
+
+#define DC_C GPIOC -> BSRR = 8 << 16
+#define DC_D GPIOC -> BSRR = 8
+
+#define CS_L GPIOF -> BSRR = 8 << 16
+#define CS_H GPIOF -> BSRR = 8
+
+#define WR_L GPIOC -> BSRR = 1 << 16
+#define WR_H GPIOC -> BSRR = 1
+  
+#define WR_TWRL WR_L
+#define WR_TWRH WR_H; WR_H
+#define WR_STB WR_TWRL; WR_TWRH
+            
+#define D0_PIN_MASK (1UL << 12) // PF12 PF3
+#define D1_PIN_MASK (1UL << 15) // PD15
+#define D2_PIN_MASK (1UL << 15) // PF15 PG14
+#define D3_PIN_MASK (1UL << 13) // PE13
+#define D4_PIN_MASK (1UL << 14) // PF14
+#define D5_PIN_MASK (1UL << 11) // PE11
+#define D6_PIN_MASK (1UL <<  9) // PE9
+#define D7_PIN_MASK (1UL << 13) // PF13 PG12
+      
+#define D0_BSR_MASK(B) ((D0_PIN_MASK << 16) >> (((B) << 4) & 0x10))
+#define D1_BSR_MASK(B) ((D1_PIN_MASK << 16) >> (((B) << 3) & 0x10))
+#define D2_BSR_MASK(B) ((D2_PIN_MASK << 16) >> (((B) << 2) & 0x10))
+#define D3_BSR_MASK(B) ((D3_PIN_MASK << 16) >> (((B) << 1) & 0x10))
+#define D4_BSR_MASK(B) ((D4_PIN_MASK << 16) >> (((B) << 0) & 0x10))
+#define D5_BSR_MASK(B) ((D5_PIN_MASK << 16) >> (((B) >> 1) & 0x10))
+#define D6_BSR_MASK(B) ((D6_PIN_MASK << 16) >> (((B) >> 2) & 0x10))
+#define D7_BSR_MASK(B) ((D7_PIN_MASK << 16) >> (((B) >> 3) & 0x10))
+      
+#define lcd_write_8(C)   GPIOF -> BSRR = D0_BSR_MASK(C) | D2_BSR_MASK(C) | D4_BSR_MASK(C) | D7_BSR_MASK(C); \ 
+                         WR_L; \       
+                         GPIOD -> BSRR = D1_BSR_MASK(C); \
+                         GPIOE -> BSRR = D3_BSR_MASK(C) | D5_BSR_MASK(C) | D6_BSR_MASK(C); \
+                         WR_STB;
+                                                            
 static void SystemClock_Config(void);
 static void CPU_CACHE_Enable(void);
 static void Error_Handler(void);
@@ -14,69 +56,49 @@ static void delay(uint16_t time) {
 }
 
 static void fill_black() {
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_RESET); //CS_ACTIVE;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); //CD_COMMAND;
+  CS_L;
+  DC_C;
   lcd_write_8(0x2c);
   for(int i = 0; i < 480*320; i++) {       
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); //CD_DATA;
+    DC_D;
     //lcd_write_8(0xff); // 18-bit
     //lcd_write_8(0x00);
     //lcd_write_8(0x00);
     
     lcd_write_8(0xf8); // 16-bit
     lcd_write_8(0x00);
-    
-    //delay(20);
   }
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_SET); //CS_IDLE;
+  CS_H;
   
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_RESET); //CS_ACTIVE;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); //CD_COMMAND;
+  CS_L;
+  DC_C;
   lcd_write_8(0x2c);
   for(int i = 0; i < 480*320; i++) {       
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); //CD_DATA;
-    //lcd_write_8(0xff); // 18-bit
-    //lcd_write_8(0x00);
-    //lcd_write_8(0x00);
-    
+    DC_D;
     lcd_write_8(0x07); // 16-bit
     lcd_write_8(0xe0);
-    
-    //delay(20);
   }
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_SET); //CS_IDLE;
+  CS_H;
   
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_RESET); //CS_ACTIVE;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); //CD_COMMAND;
+  CS_L;
+  DC_C;
   lcd_write_8(0x2c);
   for(int i = 0; i < 480*320; i++) {       
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); //CD_DATA;
-    //lcd_write_8(0xff); // 18-bit
-    //lcd_write_8(0x00);
-    //lcd_write_8(0x00);
-    
+    DC_D;
     lcd_write_8(0x00); // 16-bit r 5-bit g 6-bit b 5-bit, 65536 colours 
     lcd_write_8(0x1f);
-    
-    //delay(20);
   }
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_SET); //CS_IDLE;
+  CS_H;
 
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_RESET); //CS_ACTIVE;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); //CD_COMMAND;
+  CS_L;
+  DC_C;
   lcd_write_8(0x2c);
   for(int i = 0; i < 480*320; i++) {       
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); //CD_DATA;
-    //lcd_write_8(0xff); // 18-bit
-    //lcd_write_8(0x00);
-    //lcd_write_8(0x00);
-    
+    DC_D;
     lcd_write_8(0x00); // 16-bit
     lcd_write_8(0x00);
-    
-    //delay(20);
   }
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_SET); //CS_IDLE;
+  CS_H;
 }
 
 static void write_table(const uint8_t *table, int16_t size) {
@@ -88,17 +110,17 @@ static void write_table(const uint8_t *table, int16_t size) {
       delay(len);
       len = 0;
     } else {
-      HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_RESET); //CS_ACTIVE;
-      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); //CD_COMMAND;
+      CS_L;
+      DC_C;
       lcd_write_8(cmd);
       delay(1);
       for (uint8_t d = 0; d++ < len; ) {
         uint8_t x = *(p++);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); //CD_DATA;
+        DC_D;
         lcd_write_8(x);
         delay(20);
       }
-         HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_SET); //CS_IDLE;
+         CS_H;
       }
         size -= len + 2;
     }
@@ -110,7 +132,7 @@ int main(void)
   HAL_Init();
   SystemClock_Config();
   /* Output SYSCLK  / 2 on MCO2 pin(PC.09) */
-  //HAL_RCC_MCOConfig(RCC_MCO2, RCC_MCO2SOURCE_SYSCLK, RCC_MCODIV_2);
+  HAL_RCC_MCOConfig(RCC_MCO2, RCC_MCO2SOURCE_SYSCLK, RCC_MCODIV_2);
   
 	BSP_LED_Init(LED1);
 	BSP_LED_Init(LED2);
@@ -118,29 +140,34 @@ int main(void)
 
   lcd_gpio_init();
   
-  lcd_write_8(0x00);
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_SET); // CS_IDLE;
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_SET); // RD_IDLE;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET); // WR_IDLE;
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_5, GPIO_PIN_SET); // RESET_IDLE;
-  for(int i = 0; i < 1000; i++) {};
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_5, GPIO_PIN_RESET); // RESET_ACTIVE;
-  for(int i = 0; i < 2000; i++) {};
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_5, GPIO_PIN_SET); // RESET_IDLE;
-  for(int i = 0; i < 2000; i++) {};
+  //lcd_write_8(0x00);
+  CS_H;
+  RD_H;
+  WR_H;
+  RST_H;
+  //for(int i = 0; i < 100000; i++) {};
+  RST_L;
+  //for(int i = 0; i < 200000; i++) {};
+  RST_H;
+  //for(int i = 0; i < 200000; i++) {};
   
   static const uint8_t t0[] = {
-    0xC0,   2,  0x0d, 0x0d,              // power control 1
-    0xC1,   2,  0x43, 0x00,              // power control 2
+    0xC0,   2,  0x17, 0x15,              // power control 1
+    0xC1,   1,  0x41,                    // power control 2
     0xC2,   1,  0x00,                    // power control 3
-    0xC5,   4,  0x00, 0x48, 0x00, 0x48,  // vcom control 1
-    0xB4,   1,  0x00,                    // display inversion control
+    0xC5,   3,  0x00, 0x12, 0x80,        // vcom control 1
+    0xB4,   1,  0x02,                    // display inversion control
     0xB6,   3,  0x02, 0x02, 0x3B,        // display function control
     0xE0,  15,  0x0F, 0x21, 0x1C, 0x0B, 0x0E, 0x08, 0x49, 0x98, 0x38, 0x09, 0x11, 0x03, 0x14, 0x10, 0x00, // positive gamma control
     0xE1,  15,  0x0F, 0x2F, 0x2B, 0x0C, 0x0E, 0x06, 0x47, 0x76, 0x37, 0x07, 0x11, 0x04, 0x23, 0x1E, 0x00, // negative gamma control
     0x3a,   1,  0x55,        // interface pixel format, 0x55 - 16bit, 0x66 - 18bit.
     0xB6,   2,  0x00, 0x22,  // display function control
-    0x36,   1,  0x08,        // memory access control, rotation, 0x08, 0x68, 0xc8, 0xa8
+    //0x36,   1,  0x48,        // memory access control, mx, bgr, rotation, 0x08, 0x68, 0xc8, 0xa8
+    0x36,   2,  0x08, 0x20, //ladscape
+    0xB0,   1,  0x00, // Interface Mode Control
+    0xB1,   1,  0xA0, // Frame Rate Control
+    0xB7,   1,  0xC6, // Entry Mode Set
+    0xF7,   4,  0xA9, 0x51, 0x2C, 0x82, // Adjust Control 3  
     0x11,   0,               // sleep out
     0x29,   0                // display on
   };
@@ -148,13 +175,6 @@ int main(void)
   write_table(&t0, sizeof(t0));
   
   fill_black();
-  /*
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_RESET); //CS_ACTIVE;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); //CD_COMMAND;
-  lcd_write_8(0x11);
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); //CD_DATA;
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_3, GPIO_PIN_SET); //CS_IDLE;
-  */
    
 	for(;;)
 	{
@@ -168,25 +188,11 @@ int main(void)
 }
 }
 
-void lcd_write_8(uint8_t data) {
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_12, ((data >> 0 & 1) ? GPIO_PIN_SET : GPIO_PIN_RESET));
-  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, ((data >> 1 & 1) ? GPIO_PIN_SET : GPIO_PIN_RESET));
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_15, ((data >> 2 & 1) ? GPIO_PIN_SET : GPIO_PIN_RESET));
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_13, ((data >> 3 & 1) ? GPIO_PIN_SET : GPIO_PIN_RESET));
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_14, ((data >> 4 & 1) ? GPIO_PIN_SET : GPIO_PIN_RESET));
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, ((data >> 5 & 1) ? GPIO_PIN_SET : GPIO_PIN_RESET));
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, ((data >> 6 & 1) ? GPIO_PIN_SET : GPIO_PIN_RESET));
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_13, ((data >> 7 & 1) ? GPIO_PIN_SET : GPIO_PIN_RESET));
-
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET); // WR_ACTIVE;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET); // WR_IDLE;
-}
- 
 void lcd_gpio_init(void) {
 
   // RD PA3
   // WR PC0
-  // RS/CD PC3
+  // RS/CD/DC PC3
   // CS PF3
   // RST PF5
   
@@ -203,14 +209,12 @@ void lcd_gpio_init(void) {
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
   
-  //GPIO_InitTypeDef  GPIO_InitStruct;
   GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
   
-  //GPIO_InitTypeDef  GPIO_InitStruct;
   GPIO_InitStruct.Pin = GPIO_PIN_3 | GPIO_PIN_5;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -231,51 +235,39 @@ void lcd_gpio_init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET); 
 
   GPIO_InitStruct.Pin = GPIO_PIN_9 | GPIO_PIN_11 | GPIO_PIN_13;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_SET); 
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, GPIO_PIN_SET); 
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_13, GPIO_PIN_SET);
 
   GPIO_InitStruct.Pin = GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_12, GPIO_PIN_SET); 
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_13, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_14, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_15, GPIO_PIN_SET);
 }
 
 
 
-                                                                           /**
-  * @brief  System Clock Configuration
-  *         The system Clock is configured as follow : 
-  *            System Clock source            = PLL (HSE)
-  *            SYSCLK(Hz)                     = 216000000
-  *            HCLK(Hz)                       = 216000000
-  *            AHB Prescaler                  = 1
-  *            APB1 Prescaler                 = 4
-  *            APB2 Prescaler                 = 2
-  *            HSE Frequency(Hz)              = 8000000
-  *            PLL_M                          = 8
-  *            PLL_N                          = 432
-  *            PLL_P                          = 2
-  *            PLL_Q                          = 9
-  *            PLL_R                          = 7
-  *            VDD(V)                         = 3.3
-  *            Main regulator output voltage  = Scale1 mode
-  *            Flash Latency(WS)              = 7
-  * @param  None
-  * @retval None
-  */
+/*
+* System Clock source            = PLL (HSE)
+* SYSCLK(Hz)                     = 216000000
+* HCLK(Hz)                       = 216000000
+* AHB Prescaler                  = 1
+* APB1 Prescaler                 = 4
+* APB2 Prescaler                 = 2
+* HSE Frequency(Hz)              = 8000000
+* PLL_M                          = 8
+* PLL_N                          = 432
+* PLL_P                          = 2
+* PLL_Q                          = 9
+* PLL_R                          = 7
+* VDD(V)                         = 3.3
+* Main regulator output voltage  = Scale1 mode
+* Flash Latency(WS)              = 7
+*/
 void SystemClock_Config(void)
 {
   RCC_ClkInitTypeDef RCC_ClkInitStruct;
