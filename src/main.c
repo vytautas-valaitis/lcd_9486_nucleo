@@ -87,12 +87,10 @@ static void write_table(const uint8_t *table, int16_t size) {
       CS_L;
       DC_C;
       lcd_write_8(cmd);
-      //HAL_Delay(1);
       for (uint8_t d = 0; d++ < len; ) {
         uint8_t x = *(p++);
         DC_D;
         lcd_write_8(x);
-  //      HAL_Delay(1);
       }
          CS_H;
       }
@@ -165,7 +163,7 @@ void lcd_gpio_init(void) {
 * RS/CD/DC PC3
 * CS PF3
 * RST PF5
-*/  
+*/
 
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
