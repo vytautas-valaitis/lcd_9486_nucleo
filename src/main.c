@@ -1,7 +1,7 @@
 #include "stm32f7xx_nucleo_144.h"
 #include "stm32f7xx_hal.h"
 #include "stm32f7xx_it.h"
-#include "im.h"
+#include "im2.h"
 
 #define TFTLCD_DELAY8 0x7f
 
@@ -52,6 +52,41 @@ static void SystemClock_Config(void);
 static void CPU_CACHE_Enable(void);
 static void Error_Handler(void);
 
+static void fill_frame(void) {
+  HAL_Delay(1000);
+  
+  CS_L;
+  DC_C;
+  lcd_write_8(0x2a); // set column address
+  DC_D;
+  lcd_write_8(0x00);  // SC[15:8]
+  lcd_write_8(200);  // SC[7:0]
+  lcd_write_8(0x00);  // EC[15:8]
+  lcd_write_8(250);  // EC[7:0]
+  CS_H;
+         
+  CS_L;
+  DC_C;
+  lcd_write_8(0x2b); // set page address
+  DC_D;
+  lcd_write_8(0x00);  // SP[15:8]
+  lcd_write_8(100);  // SP[7:0]
+  lcd_write_8(0x00);  // EP[15:8]
+  lcd_write_8(150);  // EP[7:0]
+  CS_H;     
+
+  CS_L;
+  DC_C;
+  lcd_write_8(0x2c);
+  for(int i = 0; i < 50*50; i++) {       
+    DC_D;
+    lcd_write_8(0x00); // 16-bit r 5-bit g 6-bit b 5-bit, 65536 colours 
+    lcd_write_8(0x00);
+  }
+  CS_H;
+ 
+}
+
 static void fill_black(void) {
   HAL_Delay(1000);
   CS_L;
@@ -63,6 +98,9 @@ static void fill_black(void) {
     lcd_write_8(0x00);
   }
   CS_H;
+  
+  // --
+  
   HAL_Delay(100);
   CS_L;
   DC_C;
@@ -135,19 +173,27 @@ int main(void) {
     0xE1,  15,  0x0F, 0x2F, 0x2B, 0x0C, 0x0E, 0x06, 0x47, 0x76, 0x37, 0x07, 0x11, 0x04, 0x23, 0x1E, 0x00, // negative gamma control
     0x3a,   1,  0x55,        // interface pixel format, 0x55 - 16bit, 0x66 - 18bit.
     0xB6,   2,  0x00, 0x22,  // display function control
-    0x36,   1,  0xc8,        // memory access control, mx, bgr, rotation, 0x08, 0x68, 0xc8, 0xa8
-    //0x36,   2,  0x08, 0x20, //ladscape
+  //  0x36,   1,  0x68,        // memory access control, mx, bgr, rotation, 0x08, 0x68, 0xc8, 0xa8
+ //   0x36,   2,  0x08, 0x20, //ladscape
+    0x36,   1,  0x02,   
     0xB0,   1,  0x00, // Interface Mode Control
     0xB1,   1,  0xA0, // Frame Rate Control
     0xB7,   1,  0xC6, // Entry Mode Set
-    0xF7,   4,  0xA9, 0x51, 0x2C, 0x82, // Adjust Control 3  
+    //0xF7,   4,  0xA9, 0x51, 0x2C, 0x82, // Adjust Control 3  
     0x11,   0,               // sleep out
     0x29,   0                // display on
   };
   
+      // writeCommand(ILI9486_MADCTL);
+      //  if(_rotation==0){spi_TFT->write16(MADCTL_MX | MADCTL_MY | MADCTL_ML | MADCTL_BGR);}
+      //  if(_rotation==1){spi_TFT->write16(MADCTL_MH | MADCTL_MV | MADCTL_MX | MADCTL_BGR);}
+      //  if(_rotation==2){spi_TFT->write16(MADCTL_MH | MADCTL_BGR);}
+      //  if(_rotation==3){spi_TFT->write16(MADCTL_MV | MADCTL_MY | MADCTL_BGR);}
+  
   write_table(&t0, sizeof(t0));
   
   fill_black();
+  fill_frame();
    
 	for(;;)	{
 		BSP_LED_Toggle(LED1);
