@@ -1,10 +1,8 @@
 #include "stm32f7xx_nucleo_144.h"
 #include "stm32f7xx_hal.h"
 #include "stm32f7xx_it.h"
-//#include "im2.h"
-//#include "font32rle.h"
-//#include "FreeMono24pt7b.h"
 #include "font.h"
+#include "fck.h"
 
 #define RST_L GPIOF -> BSRR = 32 << 16
 #define RST_H GPIOF -> BSRR = 32
@@ -20,133 +18,159 @@
 
 #define WR_L GPIOC -> BSRR = 1 << 16
 #define WR_H GPIOC -> BSRR = 1
-  
-#define WR_TWRL WR_L
-#define WR_TWRH WR_H; WR_H
-#define WR_STB WR_TWRL; WR_TWRH
-            
-#define D0_PIN_MASK (1UL << 12) // PF12 PF3
-#define D1_PIN_MASK (1UL << 15) // PD15
-#define D2_PIN_MASK (1UL << 15) // PF15 PG14
-#define D3_PIN_MASK (1UL << 13) // PE13
-#define D4_PIN_MASK (1UL << 14) // PF14
-#define D5_PIN_MASK (1UL << 11) // PE11
-#define D6_PIN_MASK (1UL <<  9) // PE9
-#define D7_PIN_MASK (1UL << 13) // PF13 PG12
       
-#define D0_BSR_MASK(B) ((D0_PIN_MASK << 16) >> (((B) << 4) & 0x10))
-#define D1_BSR_MASK(B) ((D1_PIN_MASK << 16) >> (((B) << 3) & 0x10))
-#define D2_BSR_MASK(B) ((D2_PIN_MASK << 16) >> (((B) << 2) & 0x10))
-#define D3_BSR_MASK(B) ((D3_PIN_MASK << 16) >> (((B) << 1) & 0x10))
-#define D4_BSR_MASK(B) ((D4_PIN_MASK << 16) >> (((B) << 0) & 0x10))
-#define D5_BSR_MASK(B) ((D5_PIN_MASK << 16) >> (((B) >> 1) & 0x10))
-#define D6_BSR_MASK(B) ((D6_PIN_MASK << 16) >> (((B) >> 2) & 0x10))
-#define D7_BSR_MASK(B) ((D7_PIN_MASK << 16) >> (((B) >> 3) & 0x10))
+#define D0_MSK(B) (((1UL << 12) << 16) >> (((B) << 4) & 0x10)) // PF12
+#define D1_MSK(B) (((1UL << 15) << 16) >> (((B) << 3) & 0x10)) // PD15
+#define D2_MSK(B) (((1UL << 15) << 16) >> (((B) << 2) & 0x10)) // PF15
+#define D3_MSK(B) (((1UL << 13) << 16) >> (((B) << 1) & 0x10)) // PE13
+#define D4_MSK(B) (((1UL << 14) << 16) >> (((B) << 0) & 0x10)) // PF14
+#define D5_MSK(B) (((1UL << 11) << 16) >> (((B) >> 1) & 0x10)) // PE11
+#define D6_MSK(B) (((1UL <<  9) << 16) >> (((B) >> 2) & 0x10)) // PE9
+#define D7_MSK(B) (((1UL << 13) << 16) >> (((B) >> 3) & 0x10)) // PF13
       
-#define lcd_write_8(C) GPIOF -> BSRR = D0_BSR_MASK(C) | D2_BSR_MASK(C) | D4_BSR_MASK(C) | D7_BSR_MASK(C); \ 
-                       WR_L; \       
-                       GPIOD -> BSRR = D1_BSR_MASK(C); \
-                       GPIOE -> BSRR = D3_BSR_MASK(C) | D5_BSR_MASK(C) | D6_BSR_MASK(C); \
-                       WR_STB;
-
-
-                                       
+#define lcd_write_8(C) GPIOF -> BSRR = D0_MSK(C) | D2_MSK(C) | D4_MSK(C) | D7_MSK(C); WR_L; GPIOD -> BSRR = D1_MSK(C); GPIOE -> BSRR = D3_MSK(C) | D5_MSK(C) | D6_MSK(C); WR_L; WR_H; WR_H;
+                                  
 static void SystemClock_Config(void);
 static void CPU_CACHE_Enable(void);
 static void Error_Handler(void);
 static void fill_black(void);
-static void draw_char(void);
+static void draw_char(char, uint16_t*);
 static void write_table(const uint8_t table[], int16_t size);
 
-static void draw_char(void) {
+static void draw_char(char c, uint16_t* cursor) {
   uint8_t d;
+  c -= 0x20;
   
-  
-    static const uint8_t t0[] = {
-  //  0x36,   1,  0x68,        // memory access control, mx, bgr, rotation, 0x08, 0x68, 0xc8, 0xa8
-      0x36,   2,  0x68, 0x20 //ladscape
+  GFXglyph g = Monospaced_plain_24Glyphs[c];
+  GFXglyph g2 = Monospaced_plain_24Glyphs[c + 1];
 
+  static const uint8_t t0[] = {
+      0x36,   2,  0x68, 0x20 // ladscape
   };
   
   write_table(&t0, sizeof(t0));
-  
-    CS_L;
-    DC_C;
-    lcd_write_8(0x2a); // set column address
-    DC_D;
-    lcd_write_8(1);  // SC[15:8]
-    lcd_write_8(130);  // SC[7:0]
-    lcd_write_8(1);  // EC[15:8]
-    lcd_write_8(144);  // EC[7:0]
-    CS_H;
-         
-    CS_L;
-    DC_C;
-    lcd_write_8(0x2b); // set page address
-    DC_D;
-    lcd_write_8(0x00);  // SP[15:8]
-    lcd_write_8(10);  // SP[7:0]
-    lcd_write_8(0x00);  // EP[15:8]
-    lcd_write_8(27);  // EP[7:0]
-    CS_H;  
 
-    CS_L;
-    DC_C;
-    lcd_write_8(0x2c);
+  CS_L;
+  DC_C;
+  lcd_write_8(0x2a); // set column address
+  DC_D;
+  lcd_write_8(0);  // SC[15:8]
+  lcd_write_8((uint8_t)(*cursor + g.xOffset)); // SC[7:0]
+  lcd_write_8(0);  // EC[15:8]
+  lcd_write_8((uint8_t)(*cursor + g.xOffset + g.width - 1)); // EC[7:0]
+  CS_H;
+         
+  CS_L;
+  DC_C;
+  lcd_write_8(0x2b); // set page address
+  DC_D;
+  lcd_write_8(0);  // SP[15:8]
+  lcd_write_8((uint8_t)(22 + g.yOffset));    // SP[7:0]
+  lcd_write_8(0);  // EP[15:8]
+  lcd_write_8((uint8_t)(22 + g.yOffset + g.height - 1));    // EP[7:0]
+  CS_H;  
+
+  CS_L;
+  DC_C;
+  lcd_write_8(0x2c);
     
-  for(int i = 15; i < 50; i++) {
+  for(int i = g.bitmapOffset; i < g2.bitmapOffset; i++) {
     d = Monospaced_plain_24Bitmaps[i];
+      DC_D;
       for(int j = 7; j > -1; j--) {
-        if(d & (1 << j)) {
-          DC_D;
+        if(d & (1 << j)) {    
           lcd_write_8(0xff);
           lcd_write_8(0xff);
         }
         else {
-          DC_D;
           lcd_write_8(0x00);
           lcd_write_8(0x00);
         }
-        }
-
+      }
   }
+  *cursor += g.xAdvance;
+}
+
+
+static void draw_img(void) {
+  
+  static const uint8_t t0[] = {
+    0x36,   2,  0x68, 0x20 // ladscape
+  };
+  write_table(&t0, sizeof(t0));
+    
+  CS_L;
+  DC_C;
+  lcd_write_8(0x2a); // set column address
+  DC_D;
+  lcd_write_8(1);  // SC[15:8]
+  lcd_write_8(171);  // SC[7:0]
+  lcd_write_8(1);  // EC[15:8]
+  lcd_write_8(213);  // EC[7:0]
+  CS_H;
+         
+  CS_L;
+  DC_C;
+  lcd_write_8(0x2b); // set page address
+  DC_D;
+  lcd_write_8(0);  // SP[15:8]
+  lcd_write_8(246);  // SP[7:0]
+  lcd_write_8(1);  // EP[15:8]
+  lcd_write_8(53);  // EP[7:0]
+  CS_H;  
+
+  CS_L;
+  DC_C;
+  lcd_write_8(0x2c);
+  DC_D;
+  for(int i = 0; i < 64 * 43 * 2; i++) {       
+    lcd_write_8(imf[i]);
+  }
+  CS_H;
 }
 
 static void fill_frame(void) {
+  static const uint8_t t0[] = {
+    0x36,   2,  0x08, 0x20 // ladscape
+  };
+  write_table(&t0, sizeof(t0));
+    
   for(int j = 1; j < 180; j++) {
     CS_L;
     DC_C;
     lcd_write_8(0x2a); // set column address
     DC_D;
-    lcd_write_8(0x00);  // SC[15:8]
-    lcd_write_8(10);  // SC[7:0]
-    lcd_write_8(0x00);  // EC[15:8]
-    lcd_write_8(10 + j);  // EC[7:0]
+    lcd_write_8(0x00);   // SC[15:8]
+    lcd_write_8(10);     // SC[7:0]
+    lcd_write_8(0x00);   // EC[15:8]
+    lcd_write_8(10 + j); // EC[7:0]
     CS_H;
          
     CS_L;
     DC_C;
     lcd_write_8(0x2b); // set page address
     DC_D;
-    lcd_write_8(0x00);  // SP[15:8]
-    lcd_write_8(10);  // SP[7:0]
-    lcd_write_8(0x00);  // EP[15:8]
-    lcd_write_8(59);  // EP[7:0]
+    lcd_write_8(0x00); // SP[15:8]
+    lcd_write_8(10);   // SP[7:0]
+    lcd_write_8(0x00); // EP[15:8]
+    lcd_write_8(59);   // EP[7:0]
     CS_H;  
 
     CS_L;
     DC_C;
     lcd_write_8(0x2c);
-    for(int i = 0; i < 50*(j+1); i++) {       
-      DC_D;
+    DC_D;
+    for(int i = 0; i < 50*(j+1); i++) {             
       lcd_write_8(0x90); // 16-bit r 5-bit g 6-bit b 5-bit, 65536 colours 
       lcd_write_8(0x00);
     }
     CS_H;
-    HAL_Delay(1);
+    
+    HAL_Delay(2);
+    
     if(j == 179) {
-    fill_black();
-    j = 0;
+      fill_black();
+      j = 0;
     }
   }
 }
@@ -155,25 +179,12 @@ static void fill_black(void) {
   CS_L;
   DC_C;
   lcd_write_8(0x2c);
+  DC_D;
   for(int i = 0; i < 480*320; i++) {       
-    DC_D;
     lcd_write_8(0x00); // 16-bit r 5-bit g 6-bit b 5-bit, 65536 colours 
     lcd_write_8(0x00);
   }
   CS_H;
-  
-  // --
-  /*
-  HAL_Delay(100);
-  CS_L;
-  DC_C;
-  lcd_write_8(0x2c);
-   
-  for(int i = 0; i < 480*320*2; i++) {       
-    DC_D;
-    lcd_write_8(im[i]);
-  }
-  CS_H;*/
 }
 
 static void write_table(const uint8_t table[], int16_t size) {
@@ -200,11 +211,9 @@ void lcd_reset(void) {
   RD_H;
   WR_H;
   RST_H;
-  HAL_Delay(1);
   RST_L;
-  HAL_Delay(1);
   RST_H;
-  HAL_Delay(1);
+  for(int i = 0; i < 8000; i++) {};
 }
 
 int main(void) {
@@ -232,33 +241,51 @@ int main(void) {
     0x3a,   1,  0x55,        // interface pixel format, 0x55 - 16bit, 0x66 - 18bit.
     0xB6,   2,  0x00, 0x22,  // display function control
   //  0x36,   1,  0x68,        // memory access control, mx, bgr, rotation, 0x08, 0x68, 0xc8, 0xa8
- //   0x36,   2,  0x08, 0x20, //ladscape
+  //  0x36,   2,  0x08, 0x20,  // ladscape
     0x36,   1,  0x02,   
     0xB0,   1,  0x00, // Interface Mode Control
     0xB1,   1,  0xA0, // Frame Rate Control
     0xB7,   1,  0xC6, // Entry Mode Set
-    //0xF7,   4,  0xA9, 0x51, 0x2C, 0x82, // Adjust Control 3  
+    0xF7,   4,  0xA9, 0x51, 0x2C, 0x82, // Adjust Control 3  
     0x11,   0,               // sleep out
     0x29,   0                // display on
   };
-  
-      // writeCommand(ILI9486_MADCTL);
-      //  if(_rotation==0){spi_TFT->write16(MADCTL_MX | MADCTL_MY | MADCTL_ML | MADCTL_BGR);}
-      //  if(_rotation==1){spi_TFT->write16(MADCTL_MH | MADCTL_MV | MADCTL_MX | MADCTL_BGR);}
-      //  if(_rotation==2){spi_TFT->write16(MADCTL_MH | MADCTL_BGR);}
-      //  if(_rotation==3){spi_TFT->write16(MADCTL_MV | MADCTL_MY | MADCTL_BGR);}
-  
+
   write_table(&t0, sizeof(t0));
   
-  HAL_Delay(100);
+  HAL_Delay(70);
   
   fill_black();
-  draw_char();
-   
+  
+  draw_img();
+  
+  uint16_t cursor;
+  cursor = 3;
+  draw_char('$', &cursor);
+  draw_char(' ', &cursor);
+  draw_char('l', &cursor);
+  draw_char('a', &cursor);
+  draw_char('b', &cursor);
+  draw_char('a', &cursor);
+  draw_char('s', &cursor);
+  draw_char(',', &cursor);
+  draw_char(' ', &cursor);
+  draw_char('p', &cursor);
+  draw_char('a', &cursor);
+  draw_char('p', &cursor);
+  draw_char('a', &cursor);
+  draw_char('s', &cursor);
+  draw_char(':', &cursor);
+  draw_char(')', &cursor);
+  draw_char('.', &cursor);
+
+  fill_frame();
+  
 	for(;;)	{
 		BSP_LED_Toggle(LED1);
 		HAL_Delay(100);
   }
+
 }
 
 void lcd_gpio_init(void) {
