@@ -1,9 +1,10 @@
 #include "stm32f7xx_nucleo_144.h"
 #include "stm32f7xx_hal.h"
 #include "stm32f7xx_it.h"
-#include "im2.h"
-
-#define TFTLCD_DELAY8 0x7f
+//#include "im2.h"
+//#include "font32rle.h"
+//#include "FreeMono24pt7b.h"
+#include "font.h"
 
 #define RST_L GPIOF -> BSRR = 32 << 16
 #define RST_H GPIOF -> BSRR = 32
@@ -47,48 +48,110 @@
                        GPIOD -> BSRR = D1_BSR_MASK(C); \
                        GPIOE -> BSRR = D3_BSR_MASK(C) | D5_BSR_MASK(C) | D6_BSR_MASK(C); \
                        WR_STB;
-                                                            
+
+
+                                       
 static void SystemClock_Config(void);
 static void CPU_CACHE_Enable(void);
 static void Error_Handler(void);
+static void fill_black(void);
+static void draw_char(void);
+static void write_table(const uint8_t table[], int16_t size);
+
+static void draw_char(void) {
+  uint8_t d;
+  
+  
+    static const uint8_t t0[] = {
+  //  0x36,   1,  0x68,        // memory access control, mx, bgr, rotation, 0x08, 0x68, 0xc8, 0xa8
+      0x36,   2,  0x68, 0x20 //ladscape
+
+  };
+  
+  write_table(&t0, sizeof(t0));
+  
+    CS_L;
+    DC_C;
+    lcd_write_8(0x2a); // set column address
+    DC_D;
+    lcd_write_8(1);  // SC[15:8]
+    lcd_write_8(130);  // SC[7:0]
+    lcd_write_8(1);  // EC[15:8]
+    lcd_write_8(144);  // EC[7:0]
+    CS_H;
+         
+    CS_L;
+    DC_C;
+    lcd_write_8(0x2b); // set page address
+    DC_D;
+    lcd_write_8(0x00);  // SP[15:8]
+    lcd_write_8(10);  // SP[7:0]
+    lcd_write_8(0x00);  // EP[15:8]
+    lcd_write_8(27);  // EP[7:0]
+    CS_H;  
+
+    CS_L;
+    DC_C;
+    lcd_write_8(0x2c);
+    
+  for(int i = 15; i < 50; i++) {
+    d = Monospaced_plain_24Bitmaps[i];
+      for(int j = 7; j > -1; j--) {
+        if(d & (1 << j)) {
+          DC_D;
+          lcd_write_8(0xff);
+          lcd_write_8(0xff);
+        }
+        else {
+          DC_D;
+          lcd_write_8(0x00);
+          lcd_write_8(0x00);
+        }
+        }
+
+  }
+}
 
 static void fill_frame(void) {
-  HAL_Delay(1000);
-  
-  CS_L;
-  DC_C;
-  lcd_write_8(0x2a); // set column address
-  DC_D;
-  lcd_write_8(0x00);  // SC[15:8]
-  lcd_write_8(200);  // SC[7:0]
-  lcd_write_8(0x00);  // EC[15:8]
-  lcd_write_8(250);  // EC[7:0]
-  CS_H;
-         
-  CS_L;
-  DC_C;
-  lcd_write_8(0x2b); // set page address
-  DC_D;
-  lcd_write_8(0x00);  // SP[15:8]
-  lcd_write_8(100);  // SP[7:0]
-  lcd_write_8(0x00);  // EP[15:8]
-  lcd_write_8(150);  // EP[7:0]
-  CS_H;     
-
-  CS_L;
-  DC_C;
-  lcd_write_8(0x2c);
-  for(int i = 0; i < 50*50; i++) {       
+  for(int j = 1; j < 180; j++) {
+    CS_L;
+    DC_C;
+    lcd_write_8(0x2a); // set column address
     DC_D;
-    lcd_write_8(0x00); // 16-bit r 5-bit g 6-bit b 5-bit, 65536 colours 
-    lcd_write_8(0x00);
+    lcd_write_8(0x00);  // SC[15:8]
+    lcd_write_8(10);  // SC[7:0]
+    lcd_write_8(0x00);  // EC[15:8]
+    lcd_write_8(10 + j);  // EC[7:0]
+    CS_H;
+         
+    CS_L;
+    DC_C;
+    lcd_write_8(0x2b); // set page address
+    DC_D;
+    lcd_write_8(0x00);  // SP[15:8]
+    lcd_write_8(10);  // SP[7:0]
+    lcd_write_8(0x00);  // EP[15:8]
+    lcd_write_8(59);  // EP[7:0]
+    CS_H;  
+
+    CS_L;
+    DC_C;
+    lcd_write_8(0x2c);
+    for(int i = 0; i < 50*(j+1); i++) {       
+      DC_D;
+      lcd_write_8(0x90); // 16-bit r 5-bit g 6-bit b 5-bit, 65536 colours 
+      lcd_write_8(0x00);
+    }
+    CS_H;
+    HAL_Delay(1);
+    if(j == 179) {
+    fill_black();
+    j = 0;
+    }
   }
-  CS_H;
- 
 }
 
 static void fill_black(void) {
-  HAL_Delay(1000);
   CS_L;
   DC_C;
   lcd_write_8(0x2c);
@@ -100,7 +163,7 @@ static void fill_black(void) {
   CS_H;
   
   // --
-  
+  /*
   HAL_Delay(100);
   CS_L;
   DC_C;
@@ -110,30 +173,25 @@ static void fill_black(void) {
     DC_D;
     lcd_write_8(im[i]);
   }
-  CS_H;
+  CS_H;*/
 }
 
-static void write_table(const uint8_t *table, int16_t size) {
-  uint8_t *p = table;
+static void write_table(const uint8_t table[], int16_t size) {
+  int p = 0;
   while (size > 0) {
-    uint8_t cmd = *(p++);
-    uint8_t len = *(p++);
-    if (cmd == TFTLCD_DELAY8) {
-      HAL_Delay(len);
-      len = 0;
-    } else {
-      CS_L;
-      DC_C;
-      lcd_write_8(cmd);
-      for (uint8_t d = 0; d++ < len; ) {
-        uint8_t x = *(p++);
-        DC_D;
-        lcd_write_8(x);
-      }
-         CS_H;
-      }
-        size -= len + 2;
+    uint8_t cmd = table[p++];
+    uint8_t len = table[p++];
+    CS_L;
+    DC_C;
+    lcd_write_8(cmd);
+    DC_D;
+    for (uint8_t d = 0; d++ < len; ) {
+      uint8_t x = table[p++];
+      lcd_write_8(x);
     }
+    CS_H;
+    size -= len + 2;
+  }
 }
 
 void lcd_reset(void) {
@@ -192,8 +250,10 @@ int main(void) {
   
   write_table(&t0, sizeof(t0));
   
+  HAL_Delay(100);
+  
   fill_black();
-  fill_frame();
+  draw_char();
    
 	for(;;)	{
 		BSP_LED_Toggle(LED1);
