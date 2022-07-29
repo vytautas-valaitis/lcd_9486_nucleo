@@ -1,8 +1,14 @@
 #include "stm32f7xx_nucleo_144.h"
-#include "stm32f7xx_hal.h"
+#include "stm32f7xx_hal.h" 
 #include "stm32f7xx_it.h"
 #include "font.h"
 #include "fck.h"
+
+//#ifdef __GNUC__
+#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+//#else
+//#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
+//#endif
 
 #define RST_L GPIOF -> BSRR = 32 << 16
 #define RST_H GPIOF -> BSRR = 32
@@ -29,13 +35,17 @@
 #define D7_MSK(B) (((1UL << 13) << 16) >> (((B) >> 3) & 0x10)) // PF13
       
 #define lcd_write_8(C) GPIOF -> BSRR = D0_MSK(C) | D2_MSK(C) | D4_MSK(C) | D7_MSK(C); WR_L; GPIOD -> BSRR = D1_MSK(C); GPIOE -> BSRR = D3_MSK(C) | D5_MSK(C) | D6_MSK(C); WR_L; WR_H; WR_H;
-                                  
+
+UART_HandleTypeDef UartHandle;
+                                    
 static void SystemClock_Config(void);
 static void CPU_CACHE_Enable(void);
 static void Error_Handler(void);
 static void fill_black(void);
 static void draw_char(char, uint16_t*);
 static void write_table(const uint8_t table[], int16_t size);
+static void uart_init(void);
+static void MPU_Config(void);
 
 static void draw_char(char c, uint16_t* cursor) {
   uint8_t d;
@@ -90,7 +100,6 @@ static void draw_char(char c, uint16_t* cursor) {
   }
   *cursor += g.xAdvance;
 }
-
 
 static void draw_img(void) {
   
@@ -172,6 +181,7 @@ static void fill_frame(void) {
       fill_black();
       j = 0;
     }
+    printf("c");
   }
 }
 
@@ -217,6 +227,7 @@ void lcd_reset(void) {
 }
 
 int main(void) {
+  MPU_Config();
   CPU_CACHE_Enable();
   HAL_Init();
   SystemClock_Config();
@@ -227,7 +238,14 @@ int main(void) {
 	BSP_LED_Init(LED3);
 
   lcd_gpio_init();
-  lcd_reset();  
+  uart_init();
+  
+  //HAL_UART_Transmit(&UartHandle, 0x36, 1, 0xFFFF);
+  
+  uint8_t* msg = "hello world\n";
+  HAL_UART_Transmit(&UartHandle, msg, 12, 100);
+  
+  lcd_reset();
 
   static const uint8_t t0[] = {
     0xC0,   2,  0x17, 0x15,              // power control 1
@@ -303,6 +321,7 @@ void lcd_gpio_init(void) {
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
+  __HAL_RCC_USART3_CLK_ENABLE();
   
   GPIO_InitStruct.Pin = GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -350,8 +369,17 @@ void lcd_gpio_init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+  
+  // uart3
+  GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 }
 
+void SystemClock_Config(void) {
 /*
 * System Clock source            = PLL (HSE)
 * SYSCLK(Hz)                     = 216000000
@@ -369,7 +397,6 @@ void lcd_gpio_init(void) {
 * Main regulator output voltage  = Scale1 mode
 * Flash Latency(WS)              = 7
 */
-void SystemClock_Config(void) {
   RCC_ClkInitTypeDef RCC_ClkInitStruct;
   RCC_OscInitTypeDef RCC_OscInitStruct;
   
@@ -402,6 +429,54 @@ void SystemClock_Config(void) {
   if(HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_7) != HAL_OK) {
     while(1) {};
   }
+}
+
+static void uart_init(void) {
+
+  UartHandle.Instance        = USART3;
+
+  UartHandle.Init.BaudRate   = 115200;
+  UartHandle.Init.WordLength = UART_WORDLENGTH_8B;
+  UartHandle.Init.StopBits   = UART_STOPBITS_1;
+  UartHandle.Init.Parity     = UART_PARITY_NONE;
+  UartHandle.Init.HwFlowCtl  = UART_HWCONTROL_NONE;
+  UartHandle.Init.Mode       = UART_MODE_TX_RX;
+  UartHandle.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&UartHandle) != HAL_OK)
+  {
+    /* Initialization Error */
+    Error_Handler();
+  }
+}
+
+static void MPU_Config(void) {
+  MPU_Region_InitTypeDef MPU_InitStruct;
+
+  // Disable the MPU
+  HAL_MPU_Disable();
+
+  // Configure the MPU as Strongly ordered for not defined regions
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.BaseAddress = 0x00;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
+  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER0;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.SubRegionDisable = 0x87;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  // Enable the MPU
+  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+}
+
+PUTCHAR_PROTOTYPE {
+  HAL_UART_Transmit(&UartHandle, (uint8_t *)&ch, 1, 0xFFFF);
+  return ch;
 }
 
 // CPU L1-Cache enable.

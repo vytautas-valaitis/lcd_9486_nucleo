@@ -3,16 +3,38 @@
 
 extern int errno;
 
+/*
 int _write(int fd, const void *buffer, unsigned int count)
 {
     return -1;
+}*/
+__attribute__((weak)) int _write(int file, char *ptr, int len)
+{
+	int DataIdx;
+ 
+	for (DataIdx = 0; DataIdx < len; DataIdx++)
+	{
+		__io_putchar(*ptr++);
+	}
+	return len;
 }
 
 int _read(int fd, void *buffer, unsigned int count)
 {
     return -1;
 }
-
+/*
+__attribute__((weak)) int _read(int file, char *ptr, int len)
+{
+	int DataIdx;
+ 
+	for (DataIdx = 0; DataIdx < len; DataIdx++)
+	{
+		*ptr++ = __io_getchar();
+	}
+  return len;
+}
+*/
 int _close(int fd)
 {
     return -1;
