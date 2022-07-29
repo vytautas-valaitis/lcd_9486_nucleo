@@ -11,6 +11,7 @@ static char *p_buffer = buffer;
 
 uint8_t uflag = 0;
 uint16_t cursor;
+uint16_t cursor_y;
 
 #define RST_L GPIOF -> BSRR = 32 << 16
 #define RST_H GPIOF -> BSRR = 32
@@ -44,12 +45,12 @@ static void SystemClock_Config(void);
 static void CPU_CACHE_Enable(void);
 static void Error_Handler(void);
 static void fill_black(void);
-static void draw_char(char, uint16_t*);
+static void draw_char(char, uint16_t*, uint16_t*);
 static void write_table(const uint8_t table[], int16_t size);
 static void uart_init(void);
 static void MPU_Config(void);
 
-static void draw_char(char c, uint16_t* cursor) {
+static void draw_char(char c, uint16_t* cursor, uint16_t* cursor_y) {
   uint8_t d;
   c -= 0x20;
   
@@ -66,20 +67,20 @@ static void draw_char(char c, uint16_t* cursor) {
   DC_C;
   lcd_write_8(0x2a); // set column address
   DC_D;
-  lcd_write_8(0);  // SC[15:8]
-  lcd_write_8((uint8_t)(*cursor + g.xOffset)); // SC[7:0]
-  lcd_write_8(0);  // EC[15:8]
-  lcd_write_8((uint8_t)(*cursor + g.xOffset + g.width - 1)); // EC[7:0]
+  lcd_write_8(((*cursor + g.xOffset) >> 8) & 0xFF);  // SC[15:8]
+  lcd_write_8(((*cursor + g.xOffset) >> 0) & 0xFF); // SC[7:0]
+  lcd_write_8(((*cursor + g.xOffset + g.width - 1) >> 8) & 0xFF);  // EC[15:8]
+  lcd_write_8(((*cursor + g.xOffset + g.width - 1) >> 0) & 0xFF); // EC[7:0]
   CS_H;
          
   CS_L;
   DC_C;
   lcd_write_8(0x2b); // set page address
   DC_D;
-  lcd_write_8(0);  // SP[15:8]
-  lcd_write_8((uint8_t)(22 + g.yOffset));    // SP[7:0]
-  lcd_write_8(0);  // EP[15:8]
-  lcd_write_8((uint8_t)(22 + g.yOffset + g.height - 1));    // EP[7:0]
+  lcd_write_8(((*cursor_y + 22 + g.yOffset) >> 8) & 0xFF);  // SP[15:8]
+  lcd_write_8(((*cursor_y + 22 + g.yOffset) >> 0) & 0xFF);    // SP[7:0]
+  lcd_write_8(((*cursor_y + 22 + g.yOffset + g.height - 1) >> 8) & 0xFF);  // EP[15:8]
+  lcd_write_8(((*cursor_y + 22 + g.yOffset + g.height - 1) >> 0) & 0xFF);    // EP[7:0]
   CS_H;  
 
   CS_L;
@@ -101,6 +102,10 @@ static void draw_char(char c, uint16_t* cursor) {
       }
   }
   *cursor += g.xAdvance;
+  if(*cursor > 460) {
+    *cursor = 0;
+    *cursor_y += 36; 
+  }
 }
 
 static void draw_img(void) {
@@ -190,7 +195,7 @@ static void fill_frame(void) {
       };
       write_table(&t0, sizeof(t0));
       printf("%c", buffer[0]);
-      draw_char(buffer[0], &cursor);
+      draw_char(buffer[0], &cursor, &cursor_y);
       uflag = 0;
     }
   }
@@ -280,23 +285,9 @@ int main(void) {
   draw_img();
   
   cursor = 3;
-  draw_char('$', &cursor);
-  draw_char(' ', &cursor);
-  /*draw_char('l', &cursor);
-  draw_char('a', &cursor);
-  draw_char('b', &cursor);
-  draw_char('a', &cursor);
-  draw_char('s', &cursor);
-  draw_char(',', &cursor);
-  draw_char(' ', &cursor);
-  draw_char('p', &cursor);
-  draw_char('a', &cursor);
-  draw_char('p', &cursor);
-  draw_char('a', &cursor);
-  draw_char('s', &cursor);
-  draw_char(':', &cursor);
-  draw_char(')', &cursor);
-  draw_char('.', &cursor);*/
+  cursor_y = 0;
+  draw_char('$', &cursor, &cursor_y);
+  draw_char(' ', &cursor, &cursor_y);
 
   fill_frame();
   
