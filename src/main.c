@@ -4,11 +4,13 @@
 #include "font.h"
 #include "fck.h"
 
-//#ifdef __GNUC__
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
-//#else
-//#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
-//#endif
+
+static char buffer[1];
+static char *p_buffer = buffer;
+
+uint8_t uflag = 0;
+uint16_t cursor;
 
 #define RST_L GPIOF -> BSRR = 32 << 16
 #define RST_H GPIOF -> BSRR = 32
@@ -139,12 +141,13 @@ static void draw_img(void) {
 }
 
 static void fill_frame(void) {
-  static const uint8_t t0[] = {
-    0x36,   2,  0x08, 0x20 // ladscape
-  };
-  write_table(&t0, sizeof(t0));
-    
   for(int j = 1; j < 180; j++) {
+    
+    static const uint8_t t0[] = {
+      0x36,   2,  0x08, 0x20 // ladscape
+    };
+    write_table(&t0, sizeof(t0));
+
     CS_L;
     DC_C;
     lcd_write_8(0x2a); // set column address
@@ -181,7 +184,15 @@ static void fill_frame(void) {
       fill_black();
       j = 0;
     }
-    printf("c");
+    if(uflag == 1) {
+      static const uint8_t t0[] = {
+        0x36,   2,  0x08, 0x20 // ladscape
+      };
+      write_table(&t0, sizeof(t0));
+      printf("%c", buffer[0]);
+      draw_char(buffer[0], &cursor);
+      uflag = 0;
+    }
   }
 }
 
@@ -238,13 +249,7 @@ int main(void) {
 	BSP_LED_Init(LED3);
 
   lcd_gpio_init();
-  uart_init();
-  
-  //HAL_UART_Transmit(&UartHandle, 0x36, 1, 0xFFFF);
-  
-  uint8_t* msg = "hello world\n";
-  HAL_UART_Transmit(&UartHandle, msg, 12, 100);
-  
+  uart_init();  
   lcd_reset();
 
   static const uint8_t t0[] = {
@@ -270,18 +275,14 @@ int main(void) {
   };
 
   write_table(&t0, sizeof(t0));
-  
   HAL_Delay(70);
-  
   fill_black();
-  
   draw_img();
   
-  uint16_t cursor;
   cursor = 3;
   draw_char('$', &cursor);
   draw_char(' ', &cursor);
-  draw_char('l', &cursor);
+  /*draw_char('l', &cursor);
   draw_char('a', &cursor);
   draw_char('b', &cursor);
   draw_char('a', &cursor);
@@ -295,7 +296,7 @@ int main(void) {
   draw_char('s', &cursor);
   draw_char(':', &cursor);
   draw_char(')', &cursor);
-  draw_char('.', &cursor);
+  draw_char('.', &cursor);*/
 
   fill_frame();
   
@@ -373,7 +374,7 @@ void lcd_gpio_init(void) {
   // uart3
   GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
   GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
@@ -432,29 +433,25 @@ void SystemClock_Config(void) {
 }
 
 static void uart_init(void) {
-
-  UartHandle.Instance        = USART3;
-
-  UartHandle.Init.BaudRate   = 115200;
+  UartHandle.Instance = USART3;
+  UartHandle.Init.BaudRate = 115200;
   UartHandle.Init.WordLength = UART_WORDLENGTH_8B;
-  UartHandle.Init.StopBits   = UART_STOPBITS_1;
-  UartHandle.Init.Parity     = UART_PARITY_NONE;
-  UartHandle.Init.HwFlowCtl  = UART_HWCONTROL_NONE;
-  UartHandle.Init.Mode       = UART_MODE_TX_RX;
+  UartHandle.Init.StopBits = UART_STOPBITS_1;
+  UartHandle.Init.Parity = UART_PARITY_NONE;
+  UartHandle.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  UartHandle.Init.Mode = UART_MODE_TX_RX;
   UartHandle.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&UartHandle) != HAL_OK)
-  {
-    /* Initialization Error */
+  if (HAL_UART_Init(&UartHandle) != HAL_OK) {
     Error_Handler();
   }
+  HAL_NVIC_SetPriority(USART3_IRQn, 0, 1);
+  HAL_NVIC_EnableIRQ(USART3_IRQn);
+  __HAL_UART_ENABLE_IT(&UartHandle, UART_IT_RXNE);
 }
 
 static void MPU_Config(void) {
   MPU_Region_InitTypeDef MPU_InitStruct;
-
-  // Disable the MPU
   HAL_MPU_Disable();
-
   // Configure the MPU as Strongly ordered for not defined regions
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.BaseAddress = 0x00;
@@ -467,10 +464,7 @@ static void MPU_Config(void) {
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
   MPU_InitStruct.SubRegionDisable = 0x87;
   MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
-
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
-
-  // Enable the MPU
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 }
 
@@ -488,5 +482,10 @@ static void CPU_CACHE_Enable(void) {
 static void Error_Handler(void) {
   BSP_LED_On(LED3);
   while(1) {};
+}
+
+void USART3_IRQHandler(void)  {
+  HAL_UART_Receive(&UartHandle, p_buffer, 1, 1000);
+  uflag = 1;
 }
 
