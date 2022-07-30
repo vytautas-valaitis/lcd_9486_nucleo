@@ -1,3 +1,5 @@
+// picocom /dev/ttyACM0 -b 115200 --omap delbs
+
 #include "stm32f7xx_nucleo_144.h"
 #include "stm32f7xx_hal.h" 
 #include "stm32f7xx_it.h"
@@ -52,11 +54,32 @@ static void MPU_Config(void);
 
 static void draw_char(char c, uint16_t* cursor, uint16_t* cursor_y) {
   uint8_t d;
-  c -= 0x20;
-  
-  GFXglyph g = Monospaced_plain_24Glyphs[c];
-  GFXglyph g2 = Monospaced_plain_24Glyphs[c + 1];
+  uint8_t backspace = 0;
+    
+  GFXglyph g = Monospaced_plain_24Glyphs[c - 0x20];
+  GFXglyph g2 = Monospaced_plain_24Glyphs[c - 0x20 + 1];
 
+  if (c == 8) {
+    backspace = 1;
+    if (*cursor > 33) {
+      *cursor -= 15; // only for exact monospaced font
+    }
+    g.width = 15;
+    g.height = 24;
+    g.xOffset = 0;
+    g.yOffset = -18;
+  }
+  if (c == 13) {
+    *cursor_y += 28; 
+    *cursor = 3;
+    draw_char('$', cursor, cursor_y);
+    draw_char(' ', cursor, cursor_y);
+    return;
+  }
+  if (c == 10) {
+    return;
+  }
+  
   static const uint8_t t0[] = {
       0x36,   2,  0x68, 0x20 // ladscape
   };
@@ -86,7 +109,18 @@ static void draw_char(char c, uint16_t* cursor, uint16_t* cursor_y) {
   CS_L;
   DC_C;
   lcd_write_8(0x2c);
-    
+  
+  if(backspace == 1) {
+  DC_D;
+  for(int i = 0; i < 15*24; i++) {             
+    lcd_write_8(0x00); 
+    lcd_write_8(0x00);
+  }
+  CS_H;
+   
+  }
+  else
+  { 
   for(int i = g.bitmapOffset; i < g2.bitmapOffset; i++) {
     d = Monospaced_plain_24Bitmaps[i];
       DC_D;
@@ -101,10 +135,16 @@ static void draw_char(char c, uint16_t* cursor, uint16_t* cursor_y) {
         }
       }
   }
-  *cursor += g.xAdvance;
+  
+  }
+  
+  if (backspace == 0) {
+    *cursor += g.xAdvance;
+  }
+  
   if(*cursor > 460) {
     *cursor = 0;
-    *cursor_y += 36; 
+    *cursor_y += 28;
   }
 }
 
@@ -119,19 +159,19 @@ static void draw_img(void) {
   DC_C;
   lcd_write_8(0x2a); // set column address
   DC_D;
-  lcd_write_8(1);  // SC[15:8]
-  lcd_write_8(171);  // SC[7:0]
-  lcd_write_8(1);  // EC[15:8]
-  lcd_write_8(213);  // EC[7:0]
+  lcd_write_8(1);   // SC[15:8]
+  lcd_write_8(171); // SC[7:0]
+  lcd_write_8(1);   // EC[15:8]
+  lcd_write_8(213); // EC[7:0]
   CS_H;
          
   CS_L;
   DC_C;
   lcd_write_8(0x2b); // set page address
   DC_D;
-  lcd_write_8(0);  // SP[15:8]
-  lcd_write_8(246);  // SP[7:0]
-  lcd_write_8(1);  // EP[15:8]
+  lcd_write_8(0);   // SP[15:8]
+  lcd_write_8(246); // SP[7:0]
+  lcd_write_8(1);   // EP[15:8]
   lcd_write_8(53);  // EP[7:0]
   CS_H;  
 
