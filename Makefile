@@ -12,10 +12,14 @@ FLASH_OFFSET=0x08000000
 SOURCES_S = ${CUBE_PATH}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/gcc/startup_stm32f767xx.s
 
 SOURCES_C = src/main.c
-
-SOURCES_C += src/stm32f7xx_it.c
 SOURCES_C += sys/stubs.c
 SOURCES_C += sys/_sbrk.c
+SOURCES_C += src/stm32f7xx_it.c
+#SOURCES_C += src/fatfs_sd.c
+#SOURCES_C += src/fatfs.c
+#SOURCES_C += src/user_diskio.c
+SOURCES_C += ${CUBE_PATH}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c
+SOURCES_C += ${CUBE_PATH}/Drivers/BSP/STM32F7xx_Nucleo_144/stm32f7xx_nucleo_144.c
 SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal.c
 SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_cortex.c
 SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_rcc.c
@@ -23,8 +27,9 @@ SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_pwr.c
 SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_pwr_ex.c
 SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_gpio.c
 SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_uart.c
-SOURCES_C += ${CUBE_PATH}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c
-SOURCES_C += ${CUBE_PATH}/Drivers/BSP/STM32F7xx_Nucleo_144/stm32f7xx_nucleo_144.c
+SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_spi.c
+SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_sd.c
+#SOURCES_C += ${CUBE_PATH}/Middlewares/Third_Party/FatFs/src/ff.c
 
 SOURCES = $(SOURCES_S) $(SOURCES_C)
 OBJS = $(SOURCES_S:.s=.o) $(SOURCES_C:.c=.o)
@@ -37,6 +42,7 @@ INCLUDES += -I ${CUBE_PATH}/Drivers/CMSIS/Include
 INCLUDES += -I ${CUBE_PATH}/Drivers/CMSIS/Device/ST/STM32F7xx/Include
 INCLUDES += -I ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Inc
 INCLUDES += -I ${CUBE_PATH}/Drivers/BSP/STM32F7xx_Nucleo_144
+INCLUDES += -I ${CUBE_PATH}/Middlewares/Third_Party/FatFs/src/
 
 DEFINES = -DSTM32 -DSTM32F7 -DSTM32F767xx
 
@@ -67,7 +73,7 @@ MCUFLAGS += -mthumb
 DEBUG_OPTIMIZE_FLAGS = -O0 -g -ggdb3
 
 CFLAGS = -std=c11
-CFLAGS += -Wall -Wextra --pedantic
+#CFLAGS += -Wall -Wextra --pedantic
 # generate listing files
 CFLAGS += -Wa,-aghlms=$(<:%.c=%.lst)
 CFLAGS += -DHEAP_SIZE=$(HEAP_SIZE)
@@ -89,7 +95,7 @@ LDFLAGS += -L ${CUBE_PATH}/Projects/STM32F767ZI-Nucleo/Demonstrations/SW4STM32/S
 
 .PHONY: all clean flash program erase
 
-all: $(PROJECT).bin $(PROJECT).hex $(PROJECT).asm
+all: $(PROJECT).bin #$(PROJECT).hex $(PROJECT).asm
 
 clean:
 	$(RM) $(OBJS) $(OBJS:$.o=$.lst) $(OBJS:$.o=$.su) $(PROJECT).elf $(PROJECT).bin $(PROJECT).hex $(PROJECT).map $(PROJECT).asm
@@ -118,10 +124,10 @@ $(PROJECT).elf: $(OBJS)
 %.bin: %.elf
 	$(OBJCOPY) -O binary $< $@
 
-%.hex: %.elf
-	$(OBJCOPY) -O ihex $< $@
+#%.hex: %.elf
+#	$(OBJCOPY) -O ihex $< $@
 
-%.asm: %.elf
-	$(OBJDUMP) -dgCxwsSh --show-raw-insn $< > $@
+#%.asm: %.elf
+#	$(OBJDUMP) -dgCxwsSh --show-raw-insn $< > $@
 
 # EOF

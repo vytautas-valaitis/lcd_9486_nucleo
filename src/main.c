@@ -1,19 +1,20 @@
 // picocom /dev/ttyACM0 -b 115200 --omap delbs
+#include <stdio.h>
 
 #include "stm32f7xx_nucleo_144.h"
-#include "stm32f7xx_hal.h" 
+#include "stm32f7xx_hal.h"
 #include "stm32f7xx_it.h"
+
+//#include "stm32f7xx_hal_spi.h"
+//#include "stm32f7xx_hal_sd.h"
+
 #include "font.h"
 #include "fck.h"
 
+//#include "fatfs.h"
+//#include "fatfs_sd.h"
+
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
-
-static char buffer[1];
-static char *p_buffer = buffer;
-
-uint8_t uflag = 0;
-uint16_t cursor;
-uint16_t cursor_y;
 
 #define RST_L GPIOF -> BSRR = 32 << 16
 #define RST_H GPIOF -> BSRR = 32
@@ -41,18 +42,115 @@ uint16_t cursor_y;
       
 #define lcd_write_8(C) GPIOF -> BSRR = D0_MSK(C) | D2_MSK(C) | D4_MSK(C) | D7_MSK(C); WR_L; GPIOD -> BSRR = D1_MSK(C); GPIOE -> BSRR = D3_MSK(C) | D5_MSK(C) | D6_MSK(C); WR_L; WR_H; WR_H;
 
-UART_HandleTypeDef UartHandle;
+#define SPI_CS_SET GPIOD -> BSRR = 16384 << 16
+#define SPI_CS_RESET GPIOD -> BSRR = 16384
+
+static char buffer[1];
+static char *p_buffer = buffer;
+
+volatile uint8_t uflag = 0;
+uint16_t cursor_x;
+uint16_t cursor_y;
+
+UART_HandleTypeDef h_uart3;
+SPI_HandleTypeDef h_spi1;
                                     
 static void SystemClock_Config(void);
 static void CPU_CACHE_Enable(void);
 static void Error_Handler(void);
-static void fill_black(void);
-static void draw_char(char, uint16_t*, uint16_t*);
-static void write_table(const uint8_t table[], int16_t size);
-static void uart_init(void);
 static void MPU_Config(void);
 
-static void draw_char(char c, uint16_t* cursor, uint16_t* cursor_y) {
+static void uart_init(void);
+static void spi_init(void);
+static void lcd_gpio_init(void);
+static void lcd_init(void);
+static void lcd_reset(void);
+static void fill_black(void);
+static void fill_frame(void);
+static void draw_img(void);
+static void draw_char(char, uint16_t*, uint16_t*);
+static void write_table(const uint8_t[], int16_t);
+static void spi_tx8(uint8_t);
+static uint8_t spi_rx8(void);
+
+int main(void) {
+  MPU_Config();
+  CPU_CACHE_Enable();
+  HAL_Init();
+  SystemClock_Config();
+  HAL_RCC_MCOConfig(RCC_MCO2, RCC_MCO2SOURCE_SYSCLK, RCC_MCODIV_2); // output SYSCLK / 2 on MCO2 pin (PC.09)
+  
+	BSP_LED_Init(LED1);
+	BSP_LED_Init(LED2);
+	BSP_LED_Init(LED3);
+
+  lcd_gpio_init();
+  uart_init();
+  spi_init();
+
+  lcd_reset();
+  lcd_init();
+
+  HAL_Delay(70);
+
+  fill_black();
+  draw_img();
+
+  cursor_x = 3;
+  cursor_y = 0;
+  draw_char('$', &cursor_x, &cursor_y);
+  draw_char(' ', &cursor_x, &cursor_y);
+
+  fill_frame();
+
+	for(;;)	{
+		BSP_LED_Toggle(LED1);
+		HAL_Delay(100);
+  }
+
+}
+
+
+static void spi_tx8(uint8_t data) {
+	while(!__HAL_SPI_GET_FLAG(&h_spi1, SPI_FLAG_TXE));
+	HAL_SPI_Transmit(&h_spi1, &data, 1, 100);
+}
+
+static uint8_t spi_rx8(void) {
+	uint8_t dummy, data;
+	dummy = 0xFF;
+	while(!__HAL_SPI_GET_FLAG(&h_spi1, SPI_FLAG_TXE));
+	HAL_SPI_TransmitReceive(&h_spi1, &dummy, &data, 1, 100);
+	return data;
+}
+
+static void lcd_init(void) { 
+  static const uint8_t t0[] = {
+    0xC0,   2,  0x17, 0x15,              // power control 1
+    0xC1,   1,  0x41,                    // power control 2
+    0xC2,   1,  0x00,                    // power control 3
+    0xC5,   3,  0x00, 0x12, 0x80,        // vcom control 1
+    0xB4,   1,  0x02,                    // display inversion control
+    0xB6,   3,  0x02, 0x02, 0x3B,        // display function control
+    0xE0,  15,  0x0F, 0x21, 0x1C, 0x0B, 0x0E, 0x08, 0x49, 0x98, 0x38, 0x09, 0x11, 0x03, 0x14, 0x10, 0x00, // positive gamma control
+    0xE1,  15,  0x0F, 0x2F, 0x2B, 0x0C, 0x0E, 0x06, 0x47, 0x76, 0x37, 0x07, 0x11, 0x04, 0x23, 0x1E, 0x00, // negative gamma control
+    0x3a,   1,  0x55,        // interface pixel format, 0x55 - 16bit, 0x66 - 18bit.
+    0xB6,   2,  0x00, 0x22,  // display function control
+  //  0x36,   1,  0x68,        // memory access control, mx, bgr, rotation, 0x08, 0x68, 0xc8, 0xa8
+  //  0x36,   2,  0x08, 0x20,  // ladscape
+    0x36,   1,  0x02,   
+    0xB0,   1,  0x00, // Interface Mode Control
+    0xB1,   1,  0xA0, // Frame Rate Control
+    0xB7,   1,  0xC6, // Entry Mode Set
+    0xF7,   4,  0xA9, 0x51, 0x2C, 0x82, // Adjust Control 3  
+    0x11,   0,               // sleep out
+    0x29,   0                // display on
+  };
+
+  write_table(t0, sizeof(t0));
+}
+
+static void draw_char(char c, uint16_t* cursor_x, uint16_t* cursor_y) {
   uint8_t d;
   uint8_t backspace = 0;
     
@@ -61,8 +159,8 @@ static void draw_char(char c, uint16_t* cursor, uint16_t* cursor_y) {
 
   if (c == 8) {
     backspace = 1;
-    if (*cursor > 33) {
-      *cursor -= 15; // only for exact monospaced font
+    if (*cursor_x > 33) {
+      *cursor_x -= 15; // only for exact monospaced font
     }
     g.width = 15;
     g.height = 24;
@@ -71,9 +169,9 @@ static void draw_char(char c, uint16_t* cursor, uint16_t* cursor_y) {
   }
   if (c == 13) {
     *cursor_y += 28; 
-    *cursor = 3;
-    draw_char('$', cursor, cursor_y);
-    draw_char(' ', cursor, cursor_y);
+    *cursor_x = 3;
+    draw_char('$', cursor_x, cursor_y);
+    draw_char(' ', cursor_x, cursor_y);
     return;
   }
   if (c == 10) {
@@ -84,26 +182,26 @@ static void draw_char(char c, uint16_t* cursor, uint16_t* cursor_y) {
       0x36,   2,  0x68, 0x20 // ladscape
   };
   
-  write_table(&t0, sizeof(t0));
+  write_table(t0, sizeof(t0));
 
   CS_L;
   DC_C;
   lcd_write_8(0x2a); // set column address
   DC_D;
-  lcd_write_8(((*cursor + g.xOffset) >> 8) & 0xFF);  // SC[15:8]
-  lcd_write_8(((*cursor + g.xOffset) >> 0) & 0xFF); // SC[7:0]
-  lcd_write_8(((*cursor + g.xOffset + g.width - 1) >> 8) & 0xFF);  // EC[15:8]
-  lcd_write_8(((*cursor + g.xOffset + g.width - 1) >> 0) & 0xFF); // EC[7:0]
+  lcd_write_8(((*cursor_x + g.xOffset) >> 8) & 0xFF); // SC[15:8]
+  lcd_write_8(((*cursor_x + g.xOffset) >> 0) & 0xFF); // SC[7:0]
+  lcd_write_8(((*cursor_x + g.xOffset + g.width - 1) >> 8) & 0xFF); // EC[15:8]
+  lcd_write_8(((*cursor_x + g.xOffset + g.width - 1) >> 0) & 0xFF); // EC[7:0]
   CS_H;
          
   CS_L;
   DC_C;
   lcd_write_8(0x2b); // set page address
   DC_D;
-  lcd_write_8(((*cursor_y + 22 + g.yOffset) >> 8) & 0xFF);  // SP[15:8]
-  lcd_write_8(((*cursor_y + 22 + g.yOffset) >> 0) & 0xFF);    // SP[7:0]
-  lcd_write_8(((*cursor_y + 22 + g.yOffset + g.height - 1) >> 8) & 0xFF);  // EP[15:8]
-  lcd_write_8(((*cursor_y + 22 + g.yOffset + g.height - 1) >> 0) & 0xFF);    // EP[7:0]
+  lcd_write_8(((*cursor_y + 22 + g.yOffset) >> 8) & 0xFF); // SP[15:8]
+  lcd_write_8(((*cursor_y + 22 + g.yOffset) >> 0) & 0xFF); // SP[7:0]
+  lcd_write_8(((*cursor_y + 22 + g.yOffset + g.height - 1) >> 8) & 0xFF); // EP[15:8]
+  lcd_write_8(((*cursor_y + 22 + g.yOffset + g.height - 1) >> 0) & 0xFF); // EP[7:0]
   CS_H;  
 
   CS_L;
@@ -119,31 +217,29 @@ static void draw_char(char c, uint16_t* cursor, uint16_t* cursor_y) {
   CS_H;
    
   }
-  else
-  { 
-  for(int i = g.bitmapOffset; i < g2.bitmapOffset; i++) {
-    d = Monospaced_plain_24Bitmaps[i];
-      DC_D;
-      for(int j = 7; j > -1; j--) {
-        if(d & (1 << j)) {    
-          lcd_write_8(0xff);
-          lcd_write_8(0xff);
+  else { 
+    for(int i = g.bitmapOffset; i < g2.bitmapOffset; i++) {
+      d = Monospaced_plain_24Bitmaps[i];
+        DC_D;
+        for(int j = 7; j > -1; j--) {
+          if(d & (1 << j)) {    
+            lcd_write_8(0xff);
+            lcd_write_8(0xff);
+          }
+          else {
+            lcd_write_8(0x00);
+            lcd_write_8(0x00);
+          }
         }
-        else {
-          lcd_write_8(0x00);
-          lcd_write_8(0x00);
-        }
-      }
-  }
-  
+    }
   }
   
   if (backspace == 0) {
-    *cursor += g.xAdvance;
+    *cursor_x += g.xAdvance;
   }
   
-  if(*cursor > 460) {
-    *cursor = 0;
+  if(*cursor_x > 460) {
+    *cursor_x = 0;
     *cursor_y += 28;
   }
 }
@@ -153,7 +249,7 @@ static void draw_img(void) {
   static const uint8_t t0[] = {
     0x36,   2,  0x68, 0x20 // ladscape
   };
-  write_table(&t0, sizeof(t0));
+  write_table(t0, sizeof(t0));
     
   CS_L;
   DC_C;
@@ -191,7 +287,7 @@ static void fill_frame(void) {
     static const uint8_t t0[] = {
       0x36,   2,  0x08, 0x20 // ladscape
     };
-    write_table(&t0, sizeof(t0));
+    write_table(t0, sizeof(t0));
 
     CS_L;
     DC_C;
@@ -233,11 +329,14 @@ static void fill_frame(void) {
       static const uint8_t t0[] = {
         0x36,   2,  0x08, 0x20 // ladscape
       };
-      write_table(&t0, sizeof(t0));
+      write_table(t0, sizeof(t0));
       printf("%c", buffer[0]);
-      draw_char(buffer[0], &cursor, &cursor_y);
+      draw_char(buffer[0], &cursor_x, &cursor_y);
       uflag = 0;
     }
+    SPI_CS_RESET;
+    spi_rx8();
+    SPI_CS_SET;
   }
 }
 
@@ -271,7 +370,7 @@ static void write_table(const uint8_t table[], int16_t size) {
   }
 }
 
-void lcd_reset(void) {
+static void lcd_reset(void) {
   DC_D;
   CS_H;
   RD_H;
@@ -282,63 +381,26 @@ void lcd_reset(void) {
   for(int i = 0; i < 8000; i++) {};
 }
 
-int main(void) {
-  MPU_Config();
-  CPU_CACHE_Enable();
-  HAL_Init();
-  SystemClock_Config();
-  HAL_RCC_MCOConfig(RCC_MCO2, RCC_MCO2SOURCE_SYSCLK, RCC_MCODIV_2); // output SYSCLK / 2 on MCO2 pin (PC.09)
-  
-	BSP_LED_Init(LED1);
-	BSP_LED_Init(LED2);
-	BSP_LED_Init(LED3);
 
-  lcd_gpio_init();
-  uart_init();  
-  lcd_reset();
-
-  static const uint8_t t0[] = {
-    0xC0,   2,  0x17, 0x15,              // power control 1
-    0xC1,   1,  0x41,                    // power control 2
-    0xC2,   1,  0x00,                    // power control 3
-    0xC5,   3,  0x00, 0x12, 0x80,        // vcom control 1
-    0xB4,   1,  0x02,                    // display inversion control
-    0xB6,   3,  0x02, 0x02, 0x3B,        // display function control
-    0xE0,  15,  0x0F, 0x21, 0x1C, 0x0B, 0x0E, 0x08, 0x49, 0x98, 0x38, 0x09, 0x11, 0x03, 0x14, 0x10, 0x00, // positive gamma control
-    0xE1,  15,  0x0F, 0x2F, 0x2B, 0x0C, 0x0E, 0x06, 0x47, 0x76, 0x37, 0x07, 0x11, 0x04, 0x23, 0x1E, 0x00, // negative gamma control
-    0x3a,   1,  0x55,        // interface pixel format, 0x55 - 16bit, 0x66 - 18bit.
-    0xB6,   2,  0x00, 0x22,  // display function control
-  //  0x36,   1,  0x68,        // memory access control, mx, bgr, rotation, 0x08, 0x68, 0xc8, 0xa8
-  //  0x36,   2,  0x08, 0x20,  // ladscape
-    0x36,   1,  0x02,   
-    0xB0,   1,  0x00, // Interface Mode Control
-    0xB1,   1,  0xA0, // Frame Rate Control
-    0xB7,   1,  0xC6, // Entry Mode Set
-    0xF7,   4,  0xA9, 0x51, 0x2C, 0x82, // Adjust Control 3  
-    0x11,   0,               // sleep out
-    0x29,   0                // display on
-  };
-
-  write_table(&t0, sizeof(t0));
-  HAL_Delay(70);
-  fill_black();
-  draw_img();
-  
-  cursor = 3;
-  cursor_y = 0;
-  draw_char('$', &cursor, &cursor_y);
-  draw_char(' ', &cursor, &cursor_y);
-
-  fill_frame();
-  
-	for(;;)	{
-		BSP_LED_Toggle(LED1);
-		HAL_Delay(100);
+static void spi_init(void) {
+  h_spi1.Instance = SPI1;
+  h_spi1.Init.Mode = SPI_MODE_MASTER;
+  h_spi1.Init.Direction = SPI_DIRECTION_2LINES;
+  h_spi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  h_spi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+  h_spi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  h_spi1.Init.NSS = SPI_NSS_SOFT;
+  h_spi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  h_spi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  h_spi1.Init.TIMode = SPI_TIMODE_DISABLE;
+  h_spi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  h_spi1.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&h_spi1) != HAL_OK) {
+    Error_Handler();
   }
-
 }
 
-void lcd_gpio_init(void) {
+static void lcd_gpio_init(void) {
   GPIO_InitTypeDef GPIO_InitStruct;
 /*
 * RD PA3
@@ -347,13 +409,13 @@ void lcd_gpio_init(void) {
 * CS PF3
 * RST PF5
 */
-
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_USART3_CLK_ENABLE();
+  __HAL_RCC_SPI1_CLK_ENABLE();
   
   GPIO_InitStruct.Pin = GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -408,6 +470,28 @@ void lcd_gpio_init(void) {
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
   GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+  
+  /*
+  PA5 SPI1_SCK
+  PA6 SPI1_MISO
+  PA7 SPI1_MOSI (or PB5)
+  PD14 SPI1_CS
+  */
+  
+  // spi1
+  GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  
+  GPIO_InitStruct.Pin = GPIO_PIN_14;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  //GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 }
 
@@ -464,20 +548,20 @@ void SystemClock_Config(void) {
 }
 
 static void uart_init(void) {
-  UartHandle.Instance = USART3;
-  UartHandle.Init.BaudRate = 115200;
-  UartHandle.Init.WordLength = UART_WORDLENGTH_8B;
-  UartHandle.Init.StopBits = UART_STOPBITS_1;
-  UartHandle.Init.Parity = UART_PARITY_NONE;
-  UartHandle.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  UartHandle.Init.Mode = UART_MODE_TX_RX;
-  UartHandle.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&UartHandle) != HAL_OK) {
+  h_uart3.Instance = USART3;
+  h_uart3.Init.BaudRate = 115200;
+  h_uart3.Init.WordLength = UART_WORDLENGTH_8B;
+  h_uart3.Init.StopBits = UART_STOPBITS_1;
+  h_uart3.Init.Parity = UART_PARITY_NONE;
+  h_uart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  h_uart3.Init.Mode = UART_MODE_TX_RX;
+  h_uart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&h_uart3) != HAL_OK) {
     Error_Handler();
   }
   HAL_NVIC_SetPriority(USART3_IRQn, 0, 1);
   HAL_NVIC_EnableIRQ(USART3_IRQn);
-  __HAL_UART_ENABLE_IT(&UartHandle, UART_IT_RXNE);
+  __HAL_UART_ENABLE_IT(&h_uart3, UART_IT_RXNE);
 }
 
 static void MPU_Config(void) {
@@ -500,7 +584,7 @@ static void MPU_Config(void) {
 }
 
 PUTCHAR_PROTOTYPE {
-  HAL_UART_Transmit(&UartHandle, (uint8_t *)&ch, 1, 0xFFFF);
+  HAL_UART_Transmit(&h_uart3, (uint8_t *)&ch, 1, 0xFFFF);
   return ch;
 }
 
@@ -516,7 +600,7 @@ static void Error_Handler(void) {
 }
 
 void USART3_IRQHandler(void)  {
-  HAL_UART_Receive(&UartHandle, p_buffer, 1, 1000);
+  HAL_UART_Receive(&h_uart3, p_buffer, 1, 1000);
   uflag = 1;
 }
 
