@@ -43,6 +43,28 @@
 #define SPI_CS_SET GPIOD -> BSRR = 16384 << 16
 #define SPI_CS_RESET GPIOD -> BSRR = 16384
 
+#define CMD0     (0x40+0)     	/* GO_IDLE_STATE */
+#define CMD1     (0x40+1)     	/* SEND_OP_COND */
+#define CMD8     (0x40+8)     	/* SEND_IF_COND */
+#define CMD9     (0x40+9)     	/* SEND_CSD */
+#define CMD10    (0x40+10)    	/* SEND_CID */
+#define CMD12    (0x40+12)    	/* STOP_TRANSMISSION */
+#define CMD16    (0x40+16)    	/* SET_BLOCKLEN */
+#define CMD17    (0x40+17)    	/* READ_SINGLE_BLOCK */
+#define CMD18    (0x40+18)    	/* READ_MULTIPLE_BLOCK */
+#define CMD23    (0x40+23)    	/* SET_BLOCK_COUNT */
+#define CMD24    (0x40+24)    	/* WRITE_BLOCK */
+#define CMD25    (0x40+25)    	/* WRITE_MULTIPLE_BLOCK */
+#define CMD41    (0x40+41)    	/* SEND_OP_COND (ACMD) */
+#define CMD55    (0x40+55)    	/* APP_CMD */
+#define CMD58    (0x40+58)    	/* READ_OCR */
+
+#define CT_MMC		0x01		/* MMC ver 3 */
+#define CT_SD1		0x02		/* SD ver 1 */
+#define CT_SD2		0x04		/* SD ver 2 */
+#define CT_SDC		0x06		/* SD */
+#define CT_BLOCK	0x08		/* Block addressing */
+
 static char buffer[1];
 static char *p_buffer = buffer;
 
@@ -69,7 +91,11 @@ static void draw_img(void);
 static void draw_char(char, uint16_t*, uint16_t*);
 static void write_table(const uint8_t[], int16_t);
 static void spi_tx_8(uint8_t);
+static void spi_tx_buffer(uint8_t *buffer, uint16_t len);
 static uint8_t spi_rx_8(void);
+static void spi_rx_ptr(uint8_t *buff);
+static void sd_power_on(void);
+static uint8_t sd_send_cmd(uint8_t, uint32_t);
 
 int main(void) {
   MPU_Config();
@@ -98,6 +124,47 @@ int main(void) {
   cursor_y = 0;
   draw_char('$', &cursor_x, &cursor_y);
   draw_char(' ', &cursor_x, &cursor_y);
+  
+  sd_power_on();
+  
+  uint8_t n, type, ocr[4];
+  
+  SPI_CS_SET;
+  if (sd_send_cmd(CMD0, 0) == 1) { // send GO_IDLE_STATE command
+//    SPI_CS_RESET;
+//    SPI_CS_SET;
+    draw_char('1', &cursor_x, &cursor_y);
+    if (sd_send_cmd(CMD8, 0x1AA) == 1) { // SDC V2+ accept CMD8 command, http://elm-chan.org/docs/mmc/mmc_e.html
+      draw_char('2', &cursor_x, &cursor_y);
+			for (n = 0; n < 4; n++) { // operation condition register
+				ocr[n] = spi_rx_8();
+			}
+//			SPI_CS_RESET;
+			if (ocr[2] == 0x01 && ocr[3] == 0xAA) { // ACMD41 with HCS bit
+			  draw_char('3', &cursor_x, &cursor_y);
+//			  SPI_CS_SET;
+			  do {
+					if (sd_send_cmd(CMD55, 0) <= 1 && sd_send_cmd(CMD41, 1UL << 30) == 0) break;
+				} while (1);
+//				SPI_CS_RESET;
+				draw_char('4', &cursor_x, &cursor_y);
+//				SPI_CS_SET;
+				if (sd_send_cmd(CMD58, 0) == 0) { // check CCS bit
+//				  SPI_CS_RESET;
+					for (n = 0; n < 4; n++) {
+						ocr[n] = spi_rx_8();
+					}
+					draw_char('5', &cursor_x, &cursor_y);
+					type = (ocr[0] & 0x40) ? CT_SD2 | CT_BLOCK : CT_SD2; // SDv2 (HC or SC)
+					}
+			}
+    }
+	}
+	
+	spi_rx_8();
+	SPI_CS_RESET;
+  
+
 
   fill_frame();
 
@@ -108,10 +175,92 @@ int main(void) {
 
 }
 
+static uint8_t sd_ready_wait(void) {
+	uint8_t res;
+
+	// if SD goes ready, receives 0xFF
+	do {
+		res = spi_rx_8();
+	} while (res != 0xFF);
+
+	return res;
+}
+
+static uint8_t sd_send_cmd(uint8_t cmd, uint32_t arg) {
+	uint8_t crc, res;
+
+	// wait SD ready
+	if (sd_ready_wait() != 0xFF) return 0xFF;
+
+	// transmit command
+	spi_tx_8(cmd); 					        // command
+	spi_tx_8((uint8_t)(arg >> 24)); // argument[31..24]
+	spi_tx_8((uint8_t)(arg >> 16)); // argument[23..16]
+	spi_tx_8((uint8_t)(arg >> 8)); 	// Argument[15..8]
+	spi_tx_8((uint8_t)arg); 			  // Argument[7..0]
+
+	// prepare CRC
+	if(cmd == CMD0) crc = 0x95;
+	else if(cmd == CMD8) crc = 0x87;
+	else crc = 1;
+
+	// transmit CRC
+	spi_tx_8(crc);
+
+	// skip a stuff byte when STOP_TRANSMISSION
+	if (cmd == CMD12) spi_rx_8();
+
+	// receive response
+	uint8_t n = 10;
+	do {
+		res = spi_rx_8();
+	} while ((res & 0x80) && --n);
+
+	return res;
+}
+
+static void sd_power_on(void) {
+	uint8_t args[6];
+	uint32_t cnt = 0x1fff;
+
+	SPI_CS_SET;
+	for(int i = 0; i < 10; i++) {
+		spi_tx_8(0xff);
+	}
+	SPI_CS_RESET;
+
+	// make idle state
+	args[0] = CMD0;		// CMD0:GO_IDLE_STATE
+	args[1] = 0;
+	args[2] = 0;
+	args[3] = 0;
+	args[4] = 0;
+	args[5] = 0x95;		/* CRC */
+
+  SPI_CS_SET;
+	spi_tx_buffer(args, sizeof(args));
+  SPI_CS_RESET;
+  
+  SPI_CS_SET;
+	// wait response
+	while ((spi_rx_8() != 0x01)) {}
+  SPI_CS_RESET;
+	
+	SPI_CS_SET;
+	spi_tx_8(0xff);
+  SPI_CS_RESET;
+
+	//PowerFlag = 1;
+}
 
 static void spi_tx_8(uint8_t data) {
 	while(!__HAL_SPI_GET_FLAG(&h_spi1, SPI_FLAG_TXE));
 	HAL_SPI_Transmit(&h_spi1, &data, 1, 100);
+}
+
+static void spi_tx_buffer(uint8_t *buffer, uint16_t len) {
+	while(!__HAL_SPI_GET_FLAG(&h_spi1, SPI_FLAG_TXE));
+	HAL_SPI_Transmit(&h_spi1, buffer, len, 100);
 }
 
 static uint8_t spi_rx_8(void) {
@@ -120,6 +269,10 @@ static uint8_t spi_rx_8(void) {
 	while(!__HAL_SPI_GET_FLAG(&h_spi1, SPI_FLAG_TXE));
 	HAL_SPI_TransmitReceive(&h_spi1, &dummy, &data, 1, 100);
 	return data;
+}
+
+static void spi_rx_ptr(uint8_t *buff) {
+	*buff = spi_rx_8();
 }
 
 static void lcd_init(void) { 
