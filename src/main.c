@@ -116,7 +116,7 @@ static void spi_tx_8(uint8_t data) {
 
 static uint8_t spi_rx_8(void) {
 	uint8_t dummy, data;
-	dummy = 0xFF;
+	dummy = 0xff;
 	while(!__HAL_SPI_GET_FLAG(&h_spi1, SPI_FLAG_TXE));
 	HAL_SPI_TransmitReceive(&h_spi1, &dummy, &data, 1, 100);
 	return data;
@@ -399,13 +399,13 @@ static void spi_init(void) {
 
 static void lcd_gpio_init(void) {
   GPIO_InitTypeDef GPIO_InitStruct;
-/*
-* RD PA3
-* WR PC0
-* RS/CD/DC PC3
-* CS PF3
-* RST PF5
-*/
+  /*
+  RD PA3
+  WR PC0
+  RS/CD/DC PC3
+  CS PF3
+  RST PF5
+  */
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -432,16 +432,16 @@ static void lcd_gpio_init(void) {
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
   
-/*
-* LCD_D1 PD15
-* LCD_D0 PF12
-* LCD_D7 PF13
-* LCD_D6 PE9
-* LCD_D5 PE11
-* LCD_D4 PF14
-* LCD_D3 PE13
-* LCD_D2 PF15
-*/
+  /*
+  LCD_D1 PD15
+  LCD_D0 PF12
+  LCD_D7 PF13
+  LCD_D6 PE9
+  LCD_D5 PE11
+  LCD_D4 PF14
+  LCD_D3 PE13
+  LCD_D2 PF15
+  */
   
   GPIO_InitStruct.Pin = GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -493,23 +493,23 @@ static void lcd_gpio_init(void) {
 }
 
 static void SystemClock_Config(void) {
-/*
-* System Clock source            = PLL (HSE)
-* SYSCLK(Hz)                     = 216000000
-* HCLK(Hz)                       = 216000000
-* AHB Prescaler                  = 1
-* APB1 Prescaler                 = 4
-* APB2 Prescaler                 = 2
-* HSE Frequency(Hz)              = 8000000
-* PLL_M                          = 8
-* PLL_N                          = 432
-* PLL_P                          = 2
-* PLL_Q                          = 9
-* PLL_R                          = 7
-* VDD(V)                         = 3.3
-* Main regulator output voltage  = Scale1 mode
-* Flash Latency(WS)              = 7
-*/
+  /*
+  System Clock source            = PLL (HSE)
+  SYSCLK(Hz)                     = 216000000
+  HCLK(Hz)                       = 216000000
+  AHB Prescaler                  = 1
+  APB1 Prescaler                 = 4
+  APB2 Prescaler                 = 2
+  HSE Frequency(Hz)              = 8000000
+  PLL_M                          = 8
+  PLL_N                          = 432
+  PLL_P                          = 2
+  PLL_Q                          = 9
+  PLL_R                          = 7
+  VDD(V)                         = 3.3
+  Main regulator output voltage  = Scale1 mode
+  Flash Latency(WS)              = 7
+  */
   RCC_ClkInitTypeDef RCC_ClkInitStruct;
   RCC_OscInitTypeDef RCC_OscInitStruct;
   
