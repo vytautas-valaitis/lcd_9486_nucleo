@@ -70,7 +70,7 @@ MCUFLAGS = -mcpu=cortex-m7 -mlittle-endian
 MCUFLAGS += -mfloat-abi=hard -mfpu=fpv5-sp-d16
 MCUFLAGS += -mthumb
 
-DEBUG_OPTIMIZE_FLAGS = -O0 -g -ggdb3
+DEBUG_OPTIMIZE_FLAGS = -Os -g -ggdb3
 
 CFLAGS = -std=c11
 #CFLAGS += -Wall -Wextra --pedantic

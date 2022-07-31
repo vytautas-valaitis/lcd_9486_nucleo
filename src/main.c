@@ -38,7 +38,7 @@
 #define D6_MSK(B) (((1UL <<  9) << 16) >> (((B) >> 2) & 0x10)) // PE9
 #define D7_MSK(B) (((1UL << 13) << 16) >> (((B) >> 3) & 0x10)) // PF13
       
-#define lcd_write_8(C) GPIOF -> BSRR = D0_MSK(C) | D2_MSK(C) | D4_MSK(C) | D7_MSK(C); WR_L; GPIOD -> BSRR = D1_MSK(C); GPIOE -> BSRR = D3_MSK(C) | D5_MSK(C) | D6_MSK(C); WR_L; WR_H; WR_H;
+#define lcd_write_8(C) GPIOF -> BSRR = D0_MSK(C) | D2_MSK(C) | D4_MSK(C) | D7_MSK(C); WR_L; GPIOD -> BSRR = D1_MSK(C); GPIOE -> BSRR = D3_MSK(C) | D5_MSK(C) | D6_MSK(C); WR_L; WR_H;
 
 #define SPI_CS_SET GPIOD -> BSRR = 16384 << 16
 #define SPI_CS_RESET GPIOD -> BSRR = 16384
@@ -68,8 +68,8 @@ static void fill_frame(void);
 static void draw_img(void);
 static void draw_char(char, uint16_t*, uint16_t*);
 static void write_table(const uint8_t[], int16_t);
-static void spi_tx8(uint8_t);
-static uint8_t spi_rx8(void);
+static void spi_tx_8(uint8_t);
+static uint8_t spi_rx_8(void);
 
 int main(void) {
   MPU_Config();
@@ -85,10 +85,10 @@ int main(void) {
   lcd_gpio_init();
   uart_init();
   spi_init();
-
+		
   lcd_reset();
+	HAL_Delay(1);
   lcd_init();
-
   HAL_Delay(70);
 
   fill_black();
@@ -109,12 +109,12 @@ int main(void) {
 }
 
 
-static void spi_tx8(uint8_t data) {
+static void spi_tx_8(uint8_t data) {
 	while(!__HAL_SPI_GET_FLAG(&h_spi1, SPI_FLAG_TXE));
 	HAL_SPI_Transmit(&h_spi1, &data, 1, 100);
 }
 
-static uint8_t spi_rx8(void) {
+static uint8_t spi_rx_8(void) {
 	uint8_t dummy, data;
 	dummy = 0xFF;
 	while(!__HAL_SPI_GET_FLAG(&h_spi1, SPI_FLAG_TXE));
@@ -333,7 +333,7 @@ static void fill_frame(void) {
       uflag = 0;
     }
     SPI_CS_RESET;
-    spi_rx8();
+    spi_rx_8();
     SPI_CS_SET;
   }
 }
@@ -376,7 +376,6 @@ static void lcd_reset(void) {
   RST_H;
   RST_L;
   RST_H;
-  for(int i = 0; i < 8000; i++) {};
 }
 
 
