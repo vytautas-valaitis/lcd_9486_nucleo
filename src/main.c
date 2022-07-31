@@ -14,8 +14,6 @@
 //#include "fatfs.h"
 //#include "fatfs_sd.h"
 
-#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
-
 #define RST_L GPIOF -> BSRR = 32 << 16
 #define RST_H GPIOF -> BSRR = 32
 
@@ -495,7 +493,7 @@ static void lcd_gpio_init(void) {
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 }
 
-void SystemClock_Config(void) {
+static void SystemClock_Config(void) {
 /*
 * System Clock source            = PLL (HSE)
 * SYSCLK(Hz)                     = 216000000
@@ -583,7 +581,7 @@ static void MPU_Config(void) {
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 }
 
-PUTCHAR_PROTOTYPE {
+int __io_putchar(int ch) {
   HAL_UART_Transmit(&h_uart3, (uint8_t *)&ch, 1, 0xFFFF);
   return ch;
 }
