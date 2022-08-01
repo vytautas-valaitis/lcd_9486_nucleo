@@ -174,10 +174,27 @@ int main(void) {
   uint8_t b[512];
   sd_disk_read(0, &b, 0, 1);
   
-  uint32_t partition_offset = *((uint32_t *) &b[0x01c6]);
-  printf("partition at %x\n", partition_offset);
+  uint32_t partition_lba_begin = *((uint32_t *) &b[0x01c6]);
+  printf("partition at %x\n", partition_lba_begin);
   
-  sd_disk_read(0, &b, partition_offset, 1);
+  sd_disk_read(0, &b, partition_lba_begin, 1);
+  
+  
+  // uint16_t sector_size = *((uint16_t *) &b[0x0b]);
+  uint16_t reserved_sectors = *((uint16_t *) &b[0x0e]);
+  uint8_t number_of_fats = *((uint8_t *) &b[0x10]);
+  uint32_t sectors_per_fat = *((uint32_t *) &b[0x24]);
+  
+  uint32_t root_dir_offset = partition_lba_begin + reserved_sectors + (sectors_per_fat * number_of_fats);
+
+  sd_disk_read(0, &b, root_dir_offset, 1);
+  
+  printf("root dir at %x\n", root_dir_offset);
+  
+  
+  // 0x20 + (2 * 50 3b 00 00)
+  //  
+
   
   for (int i = 0; i < 512; i++) {
     printf("%x ", b[i]);
