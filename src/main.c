@@ -1,4 +1,4 @@
-// picocom /dev/ttyACM0 -b 115200 --omap delbs
+// picocom /dev/ttyACM0 -b 115200 --omap delbs --imap lfcrlf
 #include <stdio.h>
 
 #include "stm32f7xx_nucleo_144.h"
@@ -155,6 +155,18 @@ int main(void) {
 				}
 			}
     }
+    /*else { // SDC V1 or MMC
+			type = (SD_SendCmd(CMD55, 0) <= 1 && SD_SendCmd(CMD41, 0) <= 1) ? CT_SD1 : CT_MMC;
+			do {
+				if (type == CT_SD1) {
+					if (SD_SendCmd(CMD55, 0) <= 1 && SD_SendCmd(CMD41, 0) == 0) break; // ACMD41
+				}
+				else {
+					if (SD_SendCmd(CMD1, 0) == 0) break; // CMD1
+				}
+			} while (1);
+			if (SD_SendCmd(CMD16, 512) != 0) type = 0; // SET_BLOCKLEN
+		}*/
 	}
 	spi_rx_8();
 	SPI_CS_RESET;
@@ -162,8 +174,13 @@ int main(void) {
   uint8_t b[512];
   sd_disk_read(0, &b, 0, 1);
   
-  for(int i = 0; i < 512; i++) {
-    printf("%c", b[i]);
+  uint32_t partition_offset = *((uint32_t *) &b[0x01c6]);
+  printf("partition at %x\n", partition_offset);
+  
+  sd_disk_read(0, &b, partition_offset, 1);
+  
+  for (int i = 0; i < 512; i++) {
+    printf("%x ", b[i]);
   }
   
   fill_frame();

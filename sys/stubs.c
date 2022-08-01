@@ -47,6 +47,14 @@ long _lseek(int fd, long offset, int origin) {
     return -1;
 }
 
+int _getpid(void) {
+  return -1;
+}
+
+int _kill(void) {
+  return -1;
+}
+
 void _exit(int status) {
 
 }
