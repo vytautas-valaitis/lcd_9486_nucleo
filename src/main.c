@@ -96,6 +96,9 @@ static uint8_t spi_rx_8(void);
 static void spi_rx_ptr(uint8_t *buff);
 static void sd_power_on(void);
 static uint8_t sd_send_cmd(uint8_t, uint32_t);
+static uint8_t sd_disk_read(uint8_t, uint8_t*, uint16_t, uint16_t);
+static uint8_t sd_rx_data_block(uint8_t*, uint16_t);
+static uint8_t sd_ready_wait(void);
 
 int main(void) {
   MPU_Config();
@@ -131,41 +134,38 @@ int main(void) {
   
   SPI_CS_SET;
   if (sd_send_cmd(CMD0, 0) == 1) { // send GO_IDLE_STATE command
-//    SPI_CS_RESET;
-//    SPI_CS_SET;
     draw_char('1', &cursor_x, &cursor_y);
     if (sd_send_cmd(CMD8, 0x1AA) == 1) { // SDC V2+ accept CMD8 command, http://elm-chan.org/docs/mmc/mmc_e.html
       draw_char('2', &cursor_x, &cursor_y);
 			for (n = 0; n < 4; n++) { // operation condition register
 				ocr[n] = spi_rx_8();
 			}
-//			SPI_CS_RESET;
 			if (ocr[2] == 0x01 && ocr[3] == 0xAA) { // ACMD41 with HCS bit
 			  draw_char('3', &cursor_x, &cursor_y);
-//			  SPI_CS_SET;
 			  do {
 					if (sd_send_cmd(CMD55, 0) <= 1 && sd_send_cmd(CMD41, 1UL << 30) == 0) break;
 				} while (1);
-//				SPI_CS_RESET;
 				draw_char('4', &cursor_x, &cursor_y);
-//				SPI_CS_SET;
 				if (sd_send_cmd(CMD58, 0) == 0) { // check CCS bit
-//				  SPI_CS_RESET;
 					for (n = 0; n < 4; n++) {
 						ocr[n] = spi_rx_8();
 					}
 					draw_char('5', &cursor_x, &cursor_y);
 					type = (ocr[0] & 0x40) ? CT_SD2 | CT_BLOCK : CT_SD2; // SDv2 (HC or SC)
-					}
+				}
 			}
     }
 	}
-	
 	spi_rx_8();
 	SPI_CS_RESET;
   
-
-
+  uint8_t b[512];
+  sd_disk_read(0, &b, 0, 1);
+  
+  for(int i = 0; i < 512; i++) {
+    printf("%c", b[i]);
+  }
+  
   fill_frame();
 
 	for(;;)	{
@@ -173,6 +173,64 @@ int main(void) {
 		HAL_Delay(100);
   }
 
+}
+
+static uint8_t sd_rx_data_block(uint8_t *buff, uint16_t len) {
+	uint8_t token;
+
+	do {
+		token = spi_rx_8();
+	} while(token == 0xff);
+
+	// invalid response
+	if(token != 0xFE) return 0;
+
+	// receive data
+	do {
+		spi_rx_ptr(buff++);
+	} while(len--);
+
+	// discard CRC
+	spi_rx_8();
+	spi_rx_8();
+
+	return 1;
+}
+
+// read sector
+static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint16_t sector, uint16_t count) {
+	// pdrv should be 0
+	//if (pdrv || !count) return RES_PARERR;
+
+	// no disk
+	//if (Stat & STA_NOINIT) return RES_NOTRDY;
+
+	// convert to byte address
+	//if (!(CardType & CT_SD2)) sector *= 512;
+
+	SPI_CS_SET;
+
+	if (count == 1) {
+		// READ_SINGLE_BLOCK
+		if ((sd_send_cmd(CMD17, sector) == 0) && sd_rx_data_block(buff, 512)) count = 0;
+	}
+	else {
+		// READ_MULTIPLE_BLOCK
+		if (sd_send_cmd(CMD18, sector) == 0) {
+			do {
+				if (!sd_rx_data_block(buff, 512)) break;
+				buff += 512;
+			} while (--count);
+
+			// STOP_TRANSMISSION
+			sd_send_cmd(CMD12, 0);
+		}
+	}
+
+	SPI_CS_RESET;
+	spi_rx_8();
+
+	return count ? 0 : 1;
 }
 
 static uint8_t sd_ready_wait(void) {
