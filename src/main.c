@@ -1,4 +1,10 @@
 // picocom /dev/ttyACM0 -b 115200 --omap delbs --imap lfcrlf
+// sudo dd if=/dev/sda of=ff skip=36144 bs=512 count=1
+// https://www.liquisearch.com/fatx/technical_design/directory_table/vfat_long_file_names
+// https://www.easeus.com/resource/fat32-disk-structure.htm
+// https://www.pjrc.com/tech/8051/ide/fat32.html
+// https://codeandlife.com/2012/04/02/simple-fat-and-sd-tutorial-part-1/
+
 #include <stdio.h>
 
 #include "stm32f7xx_nucleo_144.h"
@@ -128,29 +134,30 @@ int main(void) {
   draw_char('$', &cursor_x, &cursor_y);
   draw_char(' ', &cursor_x, &cursor_y);
   
+  printf("-\n");
   sd_power_on();
   
   uint8_t n, type, ocr[4];
   
   SPI_CS_SET;
   if (sd_send_cmd(CMD0, 0) == 1) { // send GO_IDLE_STATE command
-    draw_char('1', &cursor_x, &cursor_y);
+    printf("sd: idle");
     if (sd_send_cmd(CMD8, 0x1AA) == 1) { // SDC V2+ accept CMD8 command, http://elm-chan.org/docs/mmc/mmc_e.html
-      draw_char('2', &cursor_x, &cursor_y);
+      printf(", sdc v2+");
 			for (n = 0; n < 4; n++) { // operation condition register
 				ocr[n] = spi_rx_8();
 			}
 			if (ocr[2] == 0x01 && ocr[3] == 0xAA) { // ACMD41 with HCS bit
-			  draw_char('3', &cursor_x, &cursor_y);
+        printf(", acmd41 with hcs bit");
 			  do {
 					if (sd_send_cmd(CMD55, 0) <= 1 && sd_send_cmd(CMD41, 1UL << 30) == 0) break;
 				} while (1);
-				draw_char('4', &cursor_x, &cursor_y);
+				printf(", cmd55, cmd41");
 				if (sd_send_cmd(CMD58, 0) == 0) { // check CCS bit
 					for (n = 0; n < 4; n++) {
 						ocr[n] = spi_rx_8();
 					}
-					draw_char('5', &cursor_x, &cursor_y);
+					printf(", ccs bit ok, sd card ready.");
 					type = (ocr[0] & 0x40) ? CT_SD2 | CT_BLOCK : CT_SD2; // SDv2 (HC or SC)
 				}
 			}
@@ -172,6 +179,7 @@ int main(void) {
 	SPI_CS_RESET;
   
   uint8_t b[512];
+  uint8_t b2[512];
   sd_disk_read(0, &b, 0, 1);
   
   uint32_t partition_lba_begin = *((uint32_t *) &b[0x01c6]);
@@ -191,8 +199,9 @@ int main(void) {
   
   printf("root dir at: 0x%08x.\n", root_dir_offset);
   printf("sectors per cluster: 0x%02x.\n", sectors_per_cluster);
- 
-  draw_char(13, &cursor_x, &cursor_y);
+  uint8_t fn[11];
+  uint8_t sf[] = "IMG";
+
   for (int i = 0; i < 0x200; i+=0x20) {
     if (b[i] > 0x1f && b[i] < 0x7f && b[i] != 0xe5 && b[i + 0x1a] != 0 && b[i + 0x10] != 0) {
       uint16_t starting_cluster = *((uint16_t *) &b[i + 0x1a]);
@@ -201,8 +210,53 @@ int main(void) {
       for(int j = 0; j < 11; j++) {
         printf("%c", b[i+j]);
         draw_char(b[j+i], &cursor_x, &cursor_y);
+        fn[j] = b[i+j];
       }
       printf("  file start: 0x%08x, file size: 0x%08x.\n", file_start, file_size);
+      if(memcmp(fn, sf, 3) == 0) {
+      
+        static const uint8_t t0[] = {
+          0x36,   2,  0x68, 0x20 // ladscape
+        };
+        write_table(t0, sizeof(t0));
+        
+        CS_L;
+        DC_C;
+        lcd_write_8(0x2a); // set column address
+        DC_D;
+        lcd_write_8(1);   // SC[15:8]
+        lcd_write_8(0); // SC[7:0]
+        lcd_write_8(1);   // EC[15:8]
+        lcd_write_8(63); // EC[7:0]
+        CS_H;
+         
+        CS_L;
+        DC_C;
+        lcd_write_8(0x2b); // set page address
+        DC_D;
+        lcd_write_8(0);   // SP[15:8]
+        lcd_write_8(10); // SP[7:0]
+        lcd_write_8(0);   // EP[15:8]
+        lcd_write_8(73);  // EP[7:0]
+        CS_H;  
+        
+        CS_L;
+        DC_C;
+        lcd_write_8(0x2c);
+        DC_D;
+        for (int k = 0; k < 16; k++) {
+          sd_disk_read(0, &b2, (file_start + k), 1);
+          for (int l = 0; l < 512; l++) {
+            //printf("%x ", b2[i]);
+            
+        //    for(int i = 0; i < 64 * 64; i++) {       
+              lcd_write_8(b2[l]);
+        //    }
+            
+          }
+        }
+        CS_H;
+      }
       draw_char(13, &cursor_x, &cursor_y);
     }
   }
