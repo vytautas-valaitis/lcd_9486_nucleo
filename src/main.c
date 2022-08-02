@@ -191,14 +191,27 @@ int main(void) {
   
   printf("root dir at %x\n", root_dir_offset);
   
+  //  uint32_t data_area_offset = partition_lba_begin + reserved_sectors + (sectors_per_fat * number_of_fats);
   
-  // 0x20 + (2 * 50 3b 00 00)
-  //  
-
-  
-  for (int i = 0; i < 512; i++) {
-    printf("%x ", b[i]);
+  // printf("data area at %x\n", data_area_offset);
+  draw_char(13, &cursor_x, &cursor_y);
+  for (int i = 0; i < 0x200; i+=0x20) {
+    if (b[i] > 0x1f && b[i] < 0x7f && b[i] != 0xe5 && b[i + 0x1a] != 0 && b[i + 0x10] != 0) {
+      printf("%x\n", b[i]);
+      for(int j = 0; j < 11; j++) {
+        printf("%c", b[i+j]);
+        draw_char(b[j+i], &cursor_x, &cursor_y);
+      }
+      draw_char(13, &cursor_x, &cursor_y);
+    }
   }
+   
+  // 20 00 c2 05
+  // 05 c2 00 20
+  
+  //for (int i = 0; i < 512; i++) {
+  //  printf("%x ", b[i]);
+  //}
   
   fill_frame();
 
@@ -418,6 +431,10 @@ static void draw_char(char c, uint16_t* cursor_x, uint16_t* cursor_y) {
     return;
   }
   if (c == 10) {
+    return;
+  }
+  if (c == 0x7e) {
+    draw_char(' ', cursor_x, cursor_y);
     return;
   }
   
