@@ -175,12 +175,12 @@ int main(void) {
   sd_disk_read(0, &b, 0, 1);
   
   uint32_t partition_lba_begin = *((uint32_t *) &b[0x01c6]);
-  printf("partition at %x\n", partition_lba_begin);
+  printf("partition at: 0x%08x.\n", partition_lba_begin);
   
   sd_disk_read(0, &b, partition_lba_begin, 1);
   
-  
   // uint16_t sector_size = *((uint16_t *) &b[0x0b]);
+  uint8_t sectors_per_cluster = *((uint8_t *) &b[0x0d]);
   uint16_t reserved_sectors = *((uint16_t *) &b[0x0e]);
   uint8_t number_of_fats = *((uint8_t *) &b[0x10]);
   uint32_t sectors_per_fat = *((uint32_t *) &b[0x24]);
@@ -189,25 +189,23 @@ int main(void) {
 
   sd_disk_read(0, &b, root_dir_offset, 1);
   
-  printf("root dir at %x\n", root_dir_offset);
-  
-  //  uint32_t data_area_offset = partition_lba_begin + reserved_sectors + (sectors_per_fat * number_of_fats);
-  
-  // printf("data area at %x\n", data_area_offset);
+  printf("root dir at: 0x%08x.\n", root_dir_offset);
+  printf("sectors per cluster: 0x%02x.\n", sectors_per_cluster);
+ 
   draw_char(13, &cursor_x, &cursor_y);
   for (int i = 0; i < 0x200; i+=0x20) {
     if (b[i] > 0x1f && b[i] < 0x7f && b[i] != 0xe5 && b[i + 0x1a] != 0 && b[i + 0x10] != 0) {
-      printf("%x\n", b[i]);
+      uint16_t starting_cluster = *((uint16_t *) &b[i + 0x1a]);
+      uint32_t file_size = *((uint32_t *) &b[i + 0x1c]);
+      uint32_t file_start = root_dir_offset + sectors_per_cluster * (starting_cluster - 2); // clusters are numbered from 2
       for(int j = 0; j < 11; j++) {
         printf("%c", b[i+j]);
         draw_char(b[j+i], &cursor_x, &cursor_y);
       }
+      printf("  file start: 0x%08x, file size: 0x%08x.\n", file_start, file_size);
       draw_char(13, &cursor_x, &cursor_y);
     }
   }
-   
-  // 20 00 c2 05
-  // 05 c2 00 20
   
   //for (int i = 0; i < 512; i++) {
   //  printf("%x ", b[i]);
@@ -542,7 +540,7 @@ static void draw_img(void) {
 }
 
 static void fill_frame(void) {
-  for(int j = 1; j < 180; j++) {
+  for(int j = 1; j < 360; j++) {
     
     static const uint8_t t0[] = {
       0x36,   2,  0x08, 0x20 // ladscape
@@ -554,26 +552,26 @@ static void fill_frame(void) {
     lcd_write_8(0x2a); // set column address
     DC_D;
     lcd_write_8(0x00);   // SC[15:8]
-    lcd_write_8(10);     // SC[7:0]
-    lcd_write_8(0x00);   // EC[15:8]
-    lcd_write_8(10 + j); // EC[7:0]
+    lcd_write_8(0);     // SC[7:0]
+    lcd_write_8((j >> 8) & 0xff);   // EC[15:8]
+    lcd_write_8((j >> 0) & 0xff); // EC[7:0]
     CS_H;
          
     CS_L;
     DC_C;
     lcd_write_8(0x2b); // set page address
     DC_D;
-    lcd_write_8(0x00); // SP[15:8]
-    lcd_write_8(10);   // SP[7:0]
-    lcd_write_8(0x00); // EP[15:8]
-    lcd_write_8(59);   // EP[7:0]
+    lcd_write_8(0x01); // SP[15:8]
+    lcd_write_8(221);   // SP[7:0]
+    lcd_write_8(0x01); // EP[15:8]
+    lcd_write_8(224);   // EP[7:0]
     CS_H;  
 
     CS_L;
     DC_C;
     lcd_write_8(0x2c);
     DC_D;
-    for(int i = 0; i < 50*(j+1); i++) {             
+    for(int i = 0; i < 4*(j+1); i++) {             
       lcd_write_8(0x90); // 16-bit r 5-bit g 6-bit b 5-bit, 65536 colours 
       lcd_write_8(0x00);
     }
@@ -581,7 +579,7 @@ static void fill_frame(void) {
     
     HAL_Delay(2);
     
-    if(j == 179) {
+    if(j == 359) {
       fill_black();
       j = 0;
     }
