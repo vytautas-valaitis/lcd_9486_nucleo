@@ -162,6 +162,7 @@ int main(void) {
 				}
 			}
     }
+    printf("\n");
     /*else { // SDC V1 or MMC
 			type = (SD_SendCmd(CMD55, 0) <= 1 && SD_SendCmd(CMD41, 0) <= 1) ? CT_SD1 : CT_MMC;
 			do {
@@ -191,6 +192,7 @@ int main(void) {
   uint8_t sectors_per_cluster = *((uint8_t *) &b[0x0d]);
   uint16_t reserved_sectors = *((uint16_t *) &b[0x0e]);
   uint8_t number_of_fats = *((uint8_t *) &b[0x10]);
+
   uint32_t sectors_per_fat = *((uint32_t *) &b[0x24]);
   
   uint32_t root_dir_offset = partition_lba_begin + reserved_sectors + (sectors_per_fat * number_of_fats);
