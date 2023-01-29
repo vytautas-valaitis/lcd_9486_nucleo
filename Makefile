@@ -79,7 +79,7 @@ CFLAGS += -Wa,-aghlms=$(<:%.c=%.lst)
 CFLAGS += -DHEAP_SIZE=$(HEAP_SIZE)
 CFLAGS += -fstack-usage
 
-CFLAGS_EXTRA = -nostartfiles -nostdlib #-nodefaultlibs
+CFLAGS_EXTRA = -nostartfiles #-nostdlib #-nodefaultlibs
 CFLAGS_EXTRA += -fdata-sections -ffunction-sections
 
 CFLAGS += $(DEFINES) $(MCUFLAGS) $(DEBUG_OPTIMIZE_FLAGS) $(CFLAGS_EXTRA) $(INCLUDES)

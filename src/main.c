@@ -6,6 +6,7 @@
 // https://codeandlife.com/2012/04/02/simple-fat-and-sd-tutorial-part-1/
 
 #include <stdio.h>
+#include <inttypes.h>
 
 #include "stm32f7xx_nucleo_144.h"
 #include "stm32f7xx_hal.h"
@@ -40,8 +41,8 @@
 
 #define lcd_write_8(C) GPIOF -> BSRR = D0_MSK(C) | D2_MSK(C) | D4_MSK(C) | D7_MSK(C); WR_L; GPIOD -> BSRR = D1_MSK(C); GPIOE -> BSRR = D3_MSK(C) | D5_MSK(C) | D6_MSK(C); WR_L; WR_H;
 
-#define SPI_CS_SET GPIOD -> BSRR = 16384 << 16
-#define SPI_CS_RESET GPIOD -> BSRR = 16384
+#define SPI_CS_H GPIOD -> BSRR = 16384 << 16
+#define SPI_CS_L GPIOD -> BSRR = 16384
 
 #define CMD0     (0x40 + 0)   // GO_IDLE_STATE
 #define CMD1     (0x40 + 1)   // SEND_OP_COND
@@ -134,7 +135,7 @@ int main(void) {
 
   uint8_t n, type, ocr[4];
 
-  SPI_CS_SET;
+  SPI_CS_H;
 
   if (sd_send_cmd(CMD0, 0) == 1) { // send GO_IDLE_STATE command
     printf("sd: idle");
@@ -153,12 +154,11 @@ int main(void) {
           for (n = 0; n < 4; n++) {
             ocr[n] = spi_rx_8();
           }
-          printf(", ccs bit ok, sd card ready.");
-          type = (ocr[0] & 0x40) ? CT_SD2 | CT_BLOCK : CT_SD2; // SDv2 (HC or SC)
+          printf(", ccs bit ok, sd card ready.\n");
+          //type = (ocr[0] & 0x40) ? CT_SD2 | CT_BLOCK : CT_SD2; // SDv2 (HC or SC)
         }
       }
     }
-    printf("\n");
 
     /*else { // SDC V1 or MMC
       type = (SD_SendCmd(CMD55, 0) <= 1 && SD_SendCmd(CMD41, 0) <= 1) ? CT_SD1 : CT_MMC;
@@ -174,28 +174,87 @@ int main(void) {
   }
 
   spi_rx_8();
-  SPI_CS_RESET;
+
+  SPI_CS_L;
 
   uint8_t b[512];
   uint8_t b2[512];
 
   sd_disk_read(0, &b, 0, 1);
+ 
 
-  uint32_t partition_lba_begin = *((uint32_t *) &b[0x01c6]);
+  printf("partition 1: ");
+  uint8_t u; 
+  for (int i = 0; i < 15; i++) {
+    u = *((uint8_t *) &b[0x01be + i]);
+    printf("0x%02x, ", u);
+  }
+  u = *((uint8_t *) &b[0x01be + 15]);
+  printf("0x%02x.\n", u);
 
+  uint8_t p1_head = *((uint8_t *) &b[0x01be + 5]); 
+  uint8_t p1_cylinder_1 = *((uint8_t *) &b[0x01be + 6]);
+  uint8_t p1_cylinder_sector = *((uint8_t *) &b[0x01be + 7]);
+  uint16_t p1_cylinder;
+
+  p1_cylinder = (p1_cylinder_sector && 0xc0) << 2;
+  p1_cylinder = p1_cylinder && p1_cylinder_1;
+  uint8_t p1_sector = p1_cylinder_sector && 0x3F;
+
+  printf("cylinder: 0x%02x, ", p1_cylinder);
+  printf("head: 0x%02x, ", p1_head);
+  printf("sector: 0x%02x.\n", p1_sector);
+
+  uint32_t ss = *((uint32_t *) &b[0x01be + 8]);
+  printf("number of sectors: 0x%08x.\n", ss);
+
+  ss = *((uint32_t *) &b[0x01be + 0x0c]);
+  printf("number of sectors ip: 0x%08x.\n", ss);
+
+  printf("partition 2: ");
+  for (int i = 0; i < 15; i++) {
+    u = *((uint8_t *) &b[0x01ce + i]);
+    printf("0x%02x, ", u);
+  }
+  u = *((uint8_t *) &b[0x01ce + 15]);
+  printf("0x%02x.\n", u);
+
+  printf("partition 3: ");
+  for (int i = 0; i < 15; i++) {
+    u = *((uint8_t *) &b[0x01de + i]);
+    printf("0x%02x, ", u);
+  }
+  u = *((uint8_t *) &b[0x01de + 15]);
+  printf("0x%02x.\n", u);
+
+  printf("partition 4: ");
+  for (int i = 0; i < 15; i++) {
+    u = *((uint8_t *) &b[0x01ee + i]);
+    printf("0x%02x, ", u);
+  }
+  u = *((uint8_t *) &b[0x01ee + 15]);
+  printf("0x%02x.\n", u);
+
+  uint16_t signature = *((uint16_t *) &b[0x01fe]);
+  printf("signature: 0x%04x.\n", signature);
+
+  //uint32_t partition_lba_begin = *((uint32_t *) &b[0x01c6]);
+  uint64_t partition_lba_begin = *((uint64_t *) &b[0x01be]);
+  //printf("partition at: 0x%016x.\n", partition_lba_begin);
+  //
   sd_disk_read(0, &b, partition_lba_begin, 1);
 
   // uint16_t sector_size = *((uint16_t *) &b[0x0b]);
   uint8_t sectors_per_cluster = *((uint8_t *) &b[0x0d]);
   uint16_t reserved_sectors = *((uint16_t *) &b[0x0e]);
   uint8_t number_of_fats = *((uint8_t *) &b[0x10]);
-  uint32_t sectors_per_fat = *((uint32_t *) &b[0x24]);
+  //uint16_t sectors_per_fat = *((uint16_t *) &b[0x16]);  // for FAT16
+  uint32_t sectors_per_fat = *((uint32_t *) &b[0x24]);  // for FAT32
 
   uint32_t root_dir_offset = partition_lba_begin + reserved_sectors + (sectors_per_fat * number_of_fats);
 
   sd_disk_read(0, &b, root_dir_offset, 1);
 
-  printf("partition at: 0x%08x.\n", partition_lba_begin);
   printf("root dir at: 0x%08x.\n", root_dir_offset);
   printf("sectors per cluster: 0x%02x.\n", sectors_per_cluster);
 
@@ -301,7 +360,7 @@ static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint16_t sector, uint16
   // convert to byte address
   //if (!(CardType & CT_SD2)) sector *= 512;
 
-  SPI_CS_SET;
+  SPI_CS_H;
 
   if (count == 1) {
     // READ_SINGLE_BLOCK
@@ -320,7 +379,8 @@ static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint16_t sector, uint16
     }
   }
 
-  SPI_CS_RESET;
+  SPI_CS_L;
+
   spi_rx_8();
 
   return count ? 0 : 1;
@@ -377,11 +437,11 @@ static void sd_power_on(void) {
   uint8_t args[6];
   uint32_t cnt = 0x1fff;
 
-  SPI_CS_SET;
+  SPI_CS_H;
   for (int i = 0; i < 10; i++) {
     spi_tx_8(0xff);
   }
-  SPI_CS_RESET;
+  SPI_CS_L;
 
   // make idle state
   args[0] = CMD0;  // CMD0:GO_IDLE_STATE
@@ -391,18 +451,18 @@ static void sd_power_on(void) {
   args[4] = 0;
   args[5] = 0x95; // CRC
 
-  SPI_CS_SET;
+  SPI_CS_H;
   spi_tx_buffer(args, sizeof(args));
-  SPI_CS_RESET;
+  SPI_CS_L;
 
-  SPI_CS_SET;
-
+  SPI_CS_H;
   // wait response
   while ((spi_rx_8() != 0x01)) {}
-  SPI_CS_RESET;
-  SPI_CS_SET;
+  SPI_CS_L;
+
+  SPI_CS_H;
   spi_tx_8(0xff);
-  SPI_CS_RESET;
+  SPI_CS_L;
 }
 
 
@@ -626,7 +686,7 @@ static void fill_frame(void) {
     DC_D;
 
     for(int i = 0; i < 4 * (j + 1); i++) {
-      lcd_write_8(0x90); // 16-bit r 5-bit g 6-bit b 5-bit, 65536 colours 
+      lcd_write_8(0x90); // 16-bit r 5-bit g 6-bit b 5-bit, 65536 colours
       lcd_write_8(0x00);
     }
     CS_H;
@@ -647,9 +707,9 @@ static void fill_frame(void) {
       uflag = 0;
     }
 
-    SPI_CS_RESET;
+    SPI_CS_H;
     spi_rx_8();
-    SPI_CS_SET;
+    SPI_CS_L;
   }
 }
 
@@ -847,7 +907,7 @@ static void SystemClock_Config(void) {
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 432;  
+  RCC_OscInitStruct.PLL.PLLN = 432;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 9;
   RCC_OscInitStruct.PLL.PLLR = 7;
@@ -864,8 +924,8 @@ static void SystemClock_Config(void) {
   RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;  
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;  
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
   if(HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_7) != HAL_OK) {
     while(1) {};
   }
