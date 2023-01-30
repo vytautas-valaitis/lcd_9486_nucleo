@@ -42,8 +42,8 @@
 
 #define lcd_write_8(C) GPIOF -> BSRR = D0_MSK(C) | D2_MSK(C) | D4_MSK(C) | D7_MSK(C); WR_L; GPIOD -> BSRR = D1_MSK(C); GPIOE -> BSRR = D3_MSK(C) | D5_MSK(C) | D6_MSK(C); WR_L; WR_H;
 
-#define SPI_CS_H GPIOD -> BSRR = 16384 << 16
-#define SPI_CS_L GPIOD -> BSRR = 16384
+#define SPI_CS_L GPIOD -> BSRR = 16384 << 16
+#define SPI_CS_H GPIOD -> BSRR = 16384
 
 #define CMD0     (0x40 + 0)   // GO_IDLE_STATE
 #define CMD1     (0x40 + 1)   // SEND_OP_COND
@@ -136,7 +136,7 @@ int main(void) {
 
   uint8_t n, type, ocr[4];
 
-  SPI_CS_H;
+  SPI_CS_L;
 
   if (sd_send_cmd(CMD0, 0) == 1) {                 // send GO_IDLE_STATE command
     printf("sd: idle");
@@ -178,7 +178,7 @@ int main(void) {
 
   spi_rx_8();
 
-  SPI_CS_L;
+  SPI_CS_H;
 
   uint8_t b[512];
   uint8_t b2[512];
@@ -272,46 +272,10 @@ int main(void) {
   // In end-user jargon, "disk" == disk drive.
   // In professional HDD jargon, "disk" == disk platter.
   
-  /*
-  def chs(lba,C=1024,H=255,S=63):
-  """
-  'lba' linearly addresses sector, indexing from zero.
-  'C','H','S' specify geometry - fixed for a given disk:
-     1 <= C <= 1024 (10 bits)
-     1 <= H <= 255  (8 bits) not 256 due to WD1010 quirk
-     1 <= S <= 63   (6 Bits) not 64 due to WD1010 quirk
-   Returns address as c,h,s tuple:
-     0 <= c <= 1023 (10 bits) modulo C
-     0 <= h <= 255  (8 bits) modulo H
-     1 <= s <= 63   (6 Bits) not 64 due to WD1010 quirk
-  """
-  if C<1 or H<1 or S<1 or C>1024 or H>255 or S>63:
-    raise ValueError, \
-      "Invalid (C,H,S) geometry: ({},{},{})". \
-        format(C,H,S)
-  t,s = divmod(lba,S); s+=1 # tracks, sector offset
-  c,h = divmod(t,H)
-  if c>=C: raise ValueError, \
-    "Unaddressable lba value: {} for ({},{},{}) geometry.". \
-      format(lba,C,H,S)
-  return (c,h,s)
+  // The traditional limits were 512 bytes/sector × 63 sectors/track × 255 heads (tracks/cylinder) × 1024 cylinders,
+  // resulting in a limit of 8032.5 MiB for the total capacity of a disk.
 
-  def lba(c,h,s,C=1024,H=255,S=63):
-  """
-  'C','H','S' specify geometry as for function 'chs'.
-  'c','h','s' address a sector in this geometry.
-  """
-  if C<1 or H<1 or S<1 or C>1024 or H>255 or S>63:
-    raise ValueError, \
-      "Invalid (C,H,S) geometry: ({},{},{})". \
-         format(C,H,S)
-  if c<0 or h<0 or s<1 or c>=C or h>=H or s>S:
-    raise ValueError, \
-      "Unaddressable (c,h,s) value: ({},{},{}) for ({},{},{}) geometry.". \
-         format(c,h,s,C,H,S)
-  return (c*H+h)*S+(s-1)
-  */
-
+  // http://rjhcoding.com/avrc-sd-interface-1.php
   uint32_t ss = *((uint32_t *) &b[0x01be + 8]);
   printf("number of sectors: 0x%08x.\n", ss);
 
@@ -467,7 +431,7 @@ static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint16_t sector, uint16
   // convert to byte address
   //if (!(CardType & CT_SD2)) sector *= 512;
 
-  SPI_CS_H;
+  SPI_CS_L;
 
   if (count == 1) {
     if ((sd_send_cmd(CMD17, sector) == 0) && sd_rx_data_block(buff, 512)) count = 0; // READ_SINGLE_BLOCK
@@ -484,7 +448,7 @@ static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint16_t sector, uint16
     }
   }
 
-  SPI_CS_L;
+  SPI_CS_H;
 
   spi_rx_8();
 
@@ -542,11 +506,11 @@ static void sd_power_on(void) {
   uint8_t args[6];
   uint32_t cnt = 0x1fff;
 
-  SPI_CS_H;
+  SPI_CS_L;
   for (int i = 0; i < 10; i++) {
     spi_tx_8(0xff);
   }
-  SPI_CS_L;
+  SPI_CS_H;
 
   // make idle state
   args[0] = CMD0;  // CMD0:GO_IDLE_STATE
@@ -556,18 +520,18 @@ static void sd_power_on(void) {
   args[4] = 0;
   args[5] = 0x95; // CRC
 
-  SPI_CS_H;
-  spi_tx_buffer(args, sizeof(args));
   SPI_CS_L;
-
+  spi_tx_buffer(args, sizeof(args));
   SPI_CS_H;
+
+  SPI_CS_L;
   // wait response
   while ((spi_rx_8() != 0x01)) {}
-  SPI_CS_L;
-
   SPI_CS_H;
-  spi_tx_8(0xff);
+
   SPI_CS_L;
+  spi_tx_8(0xff);
+  SPI_CS_H;
 }
 
 
@@ -812,9 +776,9 @@ static void fill_frame(void) {
       uflag = 0;
     }
 
-    SPI_CS_H;
-    spi_rx_8();
     SPI_CS_L;
+    spi_rx_8();
+    SPI_CS_H;
   }
 }
 
