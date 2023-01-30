@@ -207,6 +207,111 @@ int main(void) {
   printf("head: 0x%02x, ", p1_head);
   printf("sector: 0x%02x.\n", p1_sector);
 
+  // LBA is a sector address.
+  // CHS is also a sector address.
+  // In order to convert one style of address to the other, you need to specify the drive geometry:
+  // . number of cylinders  
+  // . number of heads (per cylinder)  
+  // . number of sectors per track
+  // you cannot *translate* the geometry to an address; you use the geometry to convert an address.
+  // CHS address 3,2,1 is equivalent to LBA address 3150 if the drive geometry is 1020,16,63.
+
+  // Before LBA you simply had the physical mapping of a disk/
+  // https://en.wikipedia.org/wiki/Cylinder-head-sector
+
+  // Cylinder Number : (10b) 0-1024 (1024 = 2^10)
+  // Head Number     :  (8b) 0-256  (256  = 2^8)
+  // Sector Number   :  (6b) 1-64   (63   = 2^6 - 1)
+  // Total CHS address : 24b (10+8+6)
+
+  // The IBM PC/XT used a Western Digital WD1010 disk controller that used (in hardware registers) a 10-bit cylinder number.
+  // The first cylinder has address 0, so there are 1024 cylinder addresses.
+  
+  // The first sector (of every track) is address 1, so a 6-bit sector number can address up to 63 sectors
+  // (sector numbers 1 through 63) on each track.
+  // There is no sector address zero. It's not reserved. It doesn't exist.
+  // The subtraction of this offset is an arithmetic necessity, and is not related in any way to the boot sector. 
+
+  // A = Logical Block Address
+  // Nheads = number of heads on a disk heads-per-disk
+  // Nsectors = number of sectors on a track sectors-per-track
+  // c,h,s - is the cylinder,head,sector numbers 24-bits total (10+8+6)
+
+  // A = (c * Nheads + h) * Nsectors + (s - 1)
+
+  // e.g.
+  // for geometry 1020 16 63 of a disk with 1028160 sectors CHS 3 2 1 is LBA
+  // 3150 = (3 * 16 + 2) * 63 
+  //
+  // c 1020
+  // h 16
+  // s 63
+
+  // In my work as a software/firmware engineer developing controller firmware, device drivers for disks, and filesystem handlers,
+  // I never was concerned with or had to use the number of platters. The number of platters or that there are two possible surfaces
+  // to a platter are mechanical properties that are totally irrelevant to the drive geometry for CHS addressing.
+
+  // The C in CHS refers to the cylinder address. The disk drive has to (electro-mechanically) seek to the requested cylinder
+  // address/location so that the R/W head assembly is positioned correctly.
+
+  // The H in CHS refers to the R/W head address. The disk controller (electrically) selects the requested R/W head
+  // (after the seek is complete) by its address to access the correct track. All other R/W heads are (electrically) disabled.
+
+  // The S in CHS refers to the sector address. The disk controller (programmatically) scans each sector (after the seek and head selection)
+  // as it rotates under the (selected) R/W head, until the requested sector is located (e.g. reads the ID record of the sector,
+  // and performs an address comparison).
+
+  // Also
+  // If you're familiar with Dimensional Analysis, specifying the number of heads of a disk drive as heads per cylinder makes more sense
+  // than heads per drive.
+
+  // I understand the geometry CHS numbers, but where are the (3,2,1) tuple CHS numbers coming from?
+  // That's just an arbitrary CHS address chosen for use in examples of conversions to LBA addresses.
+
+  // BTW
+  // In end-user jargon, "disk" == disk drive.
+  // In professional HDD jargon, "disk" == disk platter.
+  
+  /*
+  def chs(lba,C=1024,H=255,S=63):
+  """
+  'lba' linearly addresses sector, indexing from zero.
+  'C','H','S' specify geometry - fixed for a given disk:
+     1 <= C <= 1024 (10 bits)
+     1 <= H <= 255  (8 bits) not 256 due to WD1010 quirk
+     1 <= S <= 63   (6 Bits) not 64 due to WD1010 quirk
+   Returns address as c,h,s tuple:
+     0 <= c <= 1023 (10 bits) modulo C
+     0 <= h <= 255  (8 bits) modulo H
+     1 <= s <= 63   (6 Bits) not 64 due to WD1010 quirk
+  """
+  if C<1 or H<1 or S<1 or C>1024 or H>255 or S>63:
+    raise ValueError, \
+      "Invalid (C,H,S) geometry: ({},{},{})". \
+        format(C,H,S)
+  t,s = divmod(lba,S); s+=1 # tracks, sector offset
+  c,h = divmod(t,H)
+  if c>=C: raise ValueError, \
+    "Unaddressable lba value: {} for ({},{},{}) geometry.". \
+      format(lba,C,H,S)
+  return (c,h,s)
+
+  def lba(c,h,s,C=1024,H=255,S=63):
+  """
+  'C','H','S' specify geometry as for function 'chs'.
+  'c','h','s' address a sector in this geometry.
+  """
+  if C<1 or H<1 or S<1 or C>1024 or H>255 or S>63:
+    raise ValueError, \
+      "Invalid (C,H,S) geometry: ({},{},{})". \
+         format(C,H,S)
+  if c<0 or h<0 or s<1 or c>=C or h>=H or s>S:
+    raise ValueError, \
+      "Unaddressable (c,h,s) value: ({},{},{}) for ({},{},{}) geometry.". \
+         format(c,h,s,C,H,S)
+  return (c*H+h)*S+(s-1)
+  */
+
   uint32_t ss = *((uint32_t *) &b[0x01be + 8]);
   printf("number of sectors: 0x%08x.\n", ss);
 
