@@ -1,23 +1,18 @@
-#######################################################################
-# Makefile for STM32F767ZI Nucleo projects
+# STM32F767ZI Nucleo
 
 PROJECT = main
 CUBE_PATH ?= STM32CubeF7
 HEAP_SIZE = 0x100
-FLASH_OFFSET=0x08000000
+FLASH_OFFSET = 0x08000000
 
-################
-# Sources
+
+# sources
 
 SOURCES_S = ${CUBE_PATH}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/gcc/startup_stm32f767xx.s
-
 SOURCES_C = src/main.c
 SOURCES_C += sys/stubs.c
 SOURCES_C += sys/_sbrk.c
 SOURCES_C += src/stm32f7xx_it.c
-#SOURCES_C += src/fatfs_sd.c
-#SOURCES_C += src/fatfs.c
-#SOURCES_C += src/user_diskio.c
 SOURCES_C += ${CUBE_PATH}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c
 SOURCES_C += ${CUBE_PATH}/Drivers/BSP/STM32F7xx_Nucleo_144/stm32f7xx_nucleo_144.c
 SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal.c
@@ -29,13 +24,12 @@ SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_gpio.c
 SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_uart.c
 SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_spi.c
 SOURCES_C += ${CUBE_PATH}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_sd.c
-#SOURCES_C += ${CUBE_PATH}/Middlewares/Third_Party/FatFs/src/ff.c
 
 SOURCES = $(SOURCES_S) $(SOURCES_C)
 OBJS = $(SOURCES_S:.s=.o) $(SOURCES_C:.c=.o)
 
-################
-# Includes and Defines
+
+# includes and defines
 
 INCLUDES += -I src
 INCLUDES += -I ${CUBE_PATH}/Drivers/CMSIS/Include
@@ -46,8 +40,8 @@ INCLUDES += -I ${CUBE_PATH}/Middlewares/Third_Party/FatFs/src/
 
 DEFINES = -DSTM32 -DSTM32F7 -DSTM32F767xx
 
-################
-# Compiler/Assembler/Linker/etc
+
+# compiler/assembler/linker/etc
 
 PREFIX = arm-none-eabi
 
@@ -63,18 +57,17 @@ SIZE = $(PREFIX)-size
 GDB = $(PREFIX)-gdb
 RM = rm -f
 
-################
-# Compiler options
+
+# compiler options
 
 MCUFLAGS = -mcpu=cortex-m7 -mlittle-endian
 MCUFLAGS += -mfloat-abi=hard -mfpu=fpv5-sp-d16
 MCUFLAGS += -mthumb
 
-DEBUG_OPTIMIZE_FLAGS = -Os -g -ggdb3
+DEBUG_OPTIMIZE_FLAGS = -Os #-g -ggdb3
 
 CFLAGS = -std=c11
 #CFLAGS += -Wall -Wextra --pedantic
-# generate listing files
 CFLAGS += -Wa,-aghlms=$(<:%.c=%.lst)
 CFLAGS += -DHEAP_SIZE=$(HEAP_SIZE)
 CFLAGS += -fstack-usage
@@ -90,7 +83,7 @@ LDFLAGS += -Wl,--gc-sections -Wl,--print-gc-sections -Wl,--cref,-Map=$(@:%.elf=%
 LDFLAGS += -Wl,--print-memory-usage
 LDFLAGS += -L ${CUBE_PATH}/Projects/STM32F767ZI-Nucleo/Demonstrations/SW4STM32/STM32767ZI_Nucleo/ -T STM32F767ZITx_FLASH.ld
 
-################
+
 # phony rules
 
 .PHONY: all clean flash program erase
@@ -108,13 +101,13 @@ program:
 erase:
 	st-flash erase
 	st-flash reset
-	
-################
+
+
 # dependency graphs for wildcard rules
 
 $(PROJECT).elf: $(OBJS)
 
-################
+
 # wildcard rules
 
 %.elf:
