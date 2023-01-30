@@ -30,14 +30,14 @@
 #define WR_L GPIOC -> BSRR = 1 << 16
 #define WR_H GPIOC -> BSRR = 1
 
-#define D0_MSK(B) (((1UL << 12) << 16) >> (((B) << 4) & 0x10)) // PF12
-#define D1_MSK(B) (((1UL << 15) << 16) >> (((B) << 3) & 0x10)) // PD15
-#define D2_MSK(B) (((1UL << 15) << 16) >> (((B) << 2) & 0x10)) // PF15
-#define D3_MSK(B) (((1UL << 13) << 16) >> (((B) << 1) & 0x10)) // PE13
-#define D4_MSK(B) (((1UL << 14) << 16) >> (((B) << 0) & 0x10)) // PF14
-#define D5_MSK(B) (((1UL << 11) << 16) >> (((B) >> 1) & 0x10)) // PE11
-#define D6_MSK(B) (((1UL <<  9) << 16) >> (((B) >> 2) & 0x10)) // PE9
-#define D7_MSK(B) (((1UL << 13) << 16) >> (((B) >> 3) & 0x10)) // PF13
+#define D0_MSK(B) (((1UL << 12) << 16) >> (((B) << 4) & 0x10)) // PF.12
+#define D1_MSK(B) (((1UL << 15) << 16) >> (((B) << 3) & 0x10)) // PD.15
+#define D2_MSK(B) (((1UL << 15) << 16) >> (((B) << 2) & 0x10)) // PF.15
+#define D3_MSK(B) (((1UL << 13) << 16) >> (((B) << 1) & 0x10)) // PE.13
+#define D4_MSK(B) (((1UL << 14) << 16) >> (((B) << 0) & 0x10)) // PF.14
+#define D5_MSK(B) (((1UL << 11) << 16) >> (((B) >> 1) & 0x10)) // PE.11
+#define D6_MSK(B) (((1UL <<  9) << 16) >> (((B) >> 2) & 0x10)) // PE.09
+#define D7_MSK(B) (((1UL << 13) << 16) >> (((B) >> 3) & 0x10)) // PF.13
 
 #define lcd_write_8(C) GPIOF -> BSRR = D0_MSK(C) | D2_MSK(C) | D4_MSK(C) | D7_MSK(C); WR_L; GPIOD -> BSRR = D1_MSK(C); GPIOE -> BSRR = D3_MSK(C) | D5_MSK(C) | D6_MSK(C); WR_L; WR_H;
 
@@ -137,20 +137,20 @@ int main(void) {
 
   SPI_CS_H;
 
-  if (sd_send_cmd(CMD0, 0) == 1) { // send GO_IDLE_STATE command
+  if (sd_send_cmd(CMD0, 0) == 1) {                 // send GO_IDLE_STATE command
     printf("sd: idle");
-    if (sd_send_cmd(CMD8, 0x1aa) == 1) { // SDC V2+ accept CMD8 command, http://elm-chan.org/docs/mmc/mmc_e.html
+    if (sd_send_cmd(CMD8, 0x1aa) == 1) {           // SDC V2+ accept CMD8 command, http://elm-chan.org/docs/mmc/mmc_e.html
       printf(", sdc v2+");
-      for (n = 0; n < 4; n++) { // operation condition register
+      for (n = 0; n < 4; n++) {                    // operation condition register
         ocr[n] = spi_rx_8();
       }
-      if (ocr[2] == 0x01 && ocr[3] == 0xaa) { // ACMD41 with HCS bit
+      if (ocr[2] == 0x01 && ocr[3] == 0xaa) {      // ACMD41 with HCS bit
         printf(", acmd41 with hcs bit");
         do {
           if (sd_send_cmd(CMD55, 0) <= 1 && sd_send_cmd(CMD41, 1UL << 30) == 0) break;
         } while (1);
         printf(", cmd55, cmd41");
-        if (sd_send_cmd(CMD58, 0) == 0) { // check CCS bit
+        if (sd_send_cmd(CMD58, 0) == 0) {          // check CCS bit
           for (n = 0; n < 4; n++) {
             ocr[n] = spi_rx_8();
           }
@@ -160,17 +160,19 @@ int main(void) {
       }
     }
 
-    /*else { // SDC V1 or MMC
+    /*
+    else {                                         // SDC V1 or MMC
       type = (SD_SendCmd(CMD55, 0) <= 1 && SD_SendCmd(CMD41, 0) <= 1) ? CT_SD1 : CT_MMC;
       do {
         if (type == CT_SD1) {
           if (SD_SendCmd(CMD55, 0) <= 1 && SD_SendCmd(CMD41, 0) == 0) break; // ACMD41
         } else {
-          if (SD_SendCmd(CMD1, 0) == 0) break; // CMD1
+          if (SD_SendCmd(CMD1, 0) == 0) break;     // CMD1
         }
       } while (1);
-      if (SD_SendCmd(CMD16, 512) != 0) type = 0; // SET_BLOCKLEN
-    }*/
+      if (SD_SendCmd(CMD16, 512) != 0) type = 0;   // SET_BLOCKLEN
+    }
+    */
   }
 
   spi_rx_8();
@@ -181,7 +183,6 @@ int main(void) {
   uint8_t b2[512];
 
   sd_disk_read(0, &b, 0, 1);
- 
 
   printf("partition 1: ");
   uint8_t u; 
@@ -199,7 +200,7 @@ int main(void) {
 
   p1_cylinder = (p1_cylinder_sector && 0xc0) << 2;
   p1_cylinder = p1_cylinder && p1_cylinder_1;
-  uint8_t p1_sector = p1_cylinder_sector && 0x3F;
+  uint8_t p1_sector = p1_cylinder_sector && 0x3f;
 
   printf("cylinder: 0x%02x, ", p1_cylinder);
   printf("head: 0x%02x, ", p1_head);
@@ -241,7 +242,7 @@ int main(void) {
   //uint32_t partition_lba_begin = *((uint32_t *) &b[0x01c6]);
   uint64_t partition_lba_begin = *((uint64_t *) &b[0x01be]);
   //printf("partition at: 0x%016x.\n", partition_lba_begin);
-  //
+
   sd_disk_read(0, &b, partition_lba_begin, 1);
 
   // uint16_t sector_size = *((uint16_t *) &b[0x0b]);
@@ -363,19 +364,17 @@ static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint16_t sector, uint16
   SPI_CS_H;
 
   if (count == 1) {
-    // READ_SINGLE_BLOCK
-    if ((sd_send_cmd(CMD17, sector) == 0) && sd_rx_data_block(buff, 512)) count = 0;
+    if ((sd_send_cmd(CMD17, sector) == 0) && sd_rx_data_block(buff, 512)) count = 0; // READ_SINGLE_BLOCK
   } else {
 
-    // READ_MULTIPLE_BLOCK
-    if (sd_send_cmd(CMD18, sector) == 0) {
+    if (sd_send_cmd(CMD18, sector) == 0) {                                           // READ_MULTIPLE_BLOCK
+
       do {
         if (!sd_rx_data_block(buff, 512)) break;
         buff += 512;
       } while (--count);
 
-      // STOP_TRANSMISSION
-      sd_send_cmd(CMD12, 0);
+      sd_send_cmd(CMD12, 0);                                                         // STOP_TRANSMISSION
     }
   }
 
@@ -390,7 +389,7 @@ static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint16_t sector, uint16
 static uint8_t sd_ready_wait(void) {
   uint8_t res;
 
-  // if SD goes ready, receives 0xFF
+  // if SD goes ready, receives 0xff
   do {
     res = spi_rx_8();
   } while (res != 0xff);
@@ -406,11 +405,11 @@ static uint8_t sd_send_cmd(uint8_t cmd, uint32_t arg) {
   if (sd_ready_wait() != 0xff) return 0xff;
 
   // transmit command
-  spi_tx_8(cmd);  // command
+  spi_tx_8(cmd);                  // command
   spi_tx_8((uint8_t)(arg >> 24)); // argument[31..24]
   spi_tx_8((uint8_t)(arg >> 16)); // argument[23..16]
-  spi_tx_8((uint8_t)(arg >> 8));  // Argument[15..8]
-  spi_tx_8((uint8_t)arg);  // Argument[7..0]
+  spi_tx_8((uint8_t)(arg >> 8));  // argument[15..8]
+  spi_tx_8((uint8_t)arg);         // argument[7..0]
 
   // prepare CRC
   if (cmd == CMD0) crc = 0x95;
@@ -494,23 +493,23 @@ static void spi_rx_ptr(uint8_t *buff) {
 
 static void lcd_init(void) { 
   static const uint8_t t0[] = {
-    0xC0,   2,  0x17, 0x15,              // power control 1
-    0xC1,   1,  0x41,                    // power control 2
-    0xC2,   1,  0x00,                    // power control 3
-    0xC5,   3,  0x00, 0x12, 0x80,        // vcom control 1
-    0xB4,   1,  0x02,                    // display inversion control
-    0xB6,   3,  0x02, 0x02, 0x3B,        // display function control
-    0xE0,  15,  0x0F, 0x21, 0x1C, 0x0B, 0x0E, 0x08, 0x49, 0x98, 0x38, 0x09, 0x11, 0x03, 0x14, 0x10, 0x00, // positive gamma control
-    0xE1,  15,  0x0F, 0x2F, 0x2B, 0x0C, 0x0E, 0x06, 0x47, 0x76, 0x37, 0x07, 0x11, 0x04, 0x23, 0x1E, 0x00, // negative gamma control
+    0xc0,   2,  0x17, 0x15,              // power control 1
+    0xc1,   1,  0x41,                    // power control 2
+    0xc2,   1,  0x00,                    // power control 3
+    0xc5,   3,  0x00, 0x12, 0x80,        // vcom control 1
+    0xb4,   1,  0x02,                    // display inversion control
+    0xb6,   3,  0x02, 0x02, 0x3b,        // display function control
+    0xe0,  15,  0x0f, 0x21, 0x1c, 0x0b, 0x0e, 0x08, 0x49, 0x98, 0x38, 0x09, 0x11, 0x03, 0x14, 0x10, 0x00, // positive gamma control
+    0xe1,  15,  0x0f, 0x2f, 0x2b, 0x0c, 0x0e, 0x06, 0x47, 0x76, 0x37, 0x07, 0x11, 0x04, 0x23, 0x1e, 0x00, // negative gamma control
     0x3a,   1,  0x55,        // interface pixel format, 0x55 - 16bit, 0x66 - 18bit.
-    0xB6,   2,  0x00, 0x22,  // display function control
+    0xb6,   2,  0x00, 0x22,  // display function control
   //  0x36,   1,  0x68,        // memory access control, mx, bgr, rotation, 0x08, 0x68, 0xc8, 0xa8
   //  0x36,   2,  0x08, 0x20,  // ladscape
     0x36,   1,  0x02,
-    0xB0,   1,  0x00, // Interface Mode Control
-    0xB1,   1,  0xA0, // Frame Rate Control
-    0xB7,   1,  0xC6, // Entry Mode Set
-    0xF7,   4,  0xA9, 0x51, 0x2C, 0x82, // Adjust Control 3
+    0xb0,   1,  0x00, // Interface Mode Control
+    0xb1,   1,  0xa0, // Frame Rate Control
+    0xb7,   1,  0xc6, // Entry Mode Set
+    0xf7,   4,  0xa9, 0x51, 0x2c, 0x82, // Adjust Control 3
     0x11,   0,               // sleep out
     0x29,   0                // display on
   };
@@ -564,10 +563,10 @@ static void draw_char(char c, uint16_t* cursor_x, uint16_t* cursor_y) {
   DC_C;
   lcd_write_8(0x2a); // set column address
   DC_D;
-  lcd_write_8(((*cursor_x + g.xOffset) >> 8) & 0xFF); // SC[15:8]
-  lcd_write_8(((*cursor_x + g.xOffset) >> 0) & 0xFF); // SC[7:0]
-  lcd_write_8(((*cursor_x + g.xOffset + g.width - 1) >> 8) & 0xFF); // EC[15:8]
-  lcd_write_8(((*cursor_x + g.xOffset + g.width - 1) >> 0) & 0xFF); // EC[7:0]
+  lcd_write_8(((*cursor_x + g.xOffset) >> 8) & 0xff); // SC[15:8]
+  lcd_write_8(((*cursor_x + g.xOffset) >> 0) & 0xff); // SC[7:0]
+  lcd_write_8(((*cursor_x + g.xOffset + g.width - 1) >> 8) & 0xff); // EC[15:8]
+  lcd_write_8(((*cursor_x + g.xOffset + g.width - 1) >> 0) & 0xff); // EC[7:0]
   CS_H;
   CS_L;
   DC_C;
@@ -900,7 +899,7 @@ static void SystemClock_Config(void) {
   RCC_ClkInitTypeDef RCC_ClkInitStruct;
   RCC_OscInitTypeDef RCC_OscInitStruct;
 
-  // Enable HSE Oscillator and activate PLL with HSE as source
+  // enable HSE Oscillator and activate PLL with HSE as source
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSIState = RCC_HSI_OFF;
@@ -915,12 +914,12 @@ static void SystemClock_Config(void) {
     while(1) {};
   }
 
-  // Activate the OverDrive to reach the 216 Mhz Frequency
+  // activate the OverDrive to reach the 216 Mhz Frequency
   if(HAL_PWREx_EnableOverDrive() != HAL_OK) {
     while(1) {};
   }
 
-  // Select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2 clocks dividers
+  // select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2 clocks dividers
   RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
@@ -953,7 +952,7 @@ static void uart_init(void) {
 static void MPU_Config(void) {
   MPU_Region_InitTypeDef MPU_InitStruct;
   HAL_MPU_Disable();
-  // Configure the MPU as Strongly ordered for not defined regions
+  // configure the MPU as Strongly ordered for not defined regions
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.BaseAddress = 0x00;
   MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
