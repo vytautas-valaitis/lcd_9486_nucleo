@@ -98,7 +98,7 @@ static uint8_t spi_rx_8(void);
 static void spi_rx_ptr(uint8_t *buff);
 static void sd_power_on(void);
 static uint8_t sd_send_cmd(uint8_t, uint32_t);
-static uint8_t sd_disk_read(uint8_t, uint8_t*, uint16_t, uint16_t);
+static uint8_t sd_disk_read(uint8_t, uint8_t*, uint32_t, uint16_t);
 static uint8_t sd_rx_data_block(uint8_t*, uint16_t);
 static uint8_t sd_ready_wait(void);
 
@@ -132,6 +132,7 @@ int main(void) {
   draw_char(' ', &cursor_x, &cursor_y);
 
   printf("-\n");
+
   sd_power_on();
 
   uint8_t n, type, ocr[4];
@@ -140,18 +141,24 @@ int main(void) {
 
   if (sd_send_cmd(CMD0, 0) == 1) {                 // send GO_IDLE_STATE command
     printf("sd: idle");
+
     if (sd_send_cmd(CMD8, 0x1aa) == 1) {           // SDC V2+ accept CMD8 command, http://elm-chan.org/docs/mmc/mmc_e.html
       printf(", sdc v2+");
+
       for (n = 0; n < 4; n++) {                    // operation condition register
         ocr[n] = spi_rx_8();
       }
+
       if (ocr[2] == 0x01 && ocr[3] == 0xaa) {      // ACMD41 with HCS bit
         printf(", acmd41 with hcs bit");
+
         do {
           if (sd_send_cmd(CMD55, 0) <= 1 && sd_send_cmd(CMD41, 1UL << 30) == 0) break;
         } while (1);
+
         printf(", cmd55, cmd41");
-        if (sd_send_cmd(CMD58, 0) == 0) {          // check CCS bit
+
+	if (sd_send_cmd(CMD58, 0) == 0) {          // check CCS bit
           for (n = 0; n < 4; n++) {
             ocr[n] = spi_rx_8();
           }
@@ -182,129 +189,49 @@ int main(void) {
 
   uint8_t b[512];
   uint8_t b2[512];
+  uint8_t b3[512];
 
-  sd_disk_read(0, &b, 0, 1);
-
-  printf("partition 1: ");
-  uint8_t u; 
-  for (int i = 0; i < 15; i++) {
-    u = *((uint8_t *) &b[0x01be + i]);
-    printf("0x%02x, ", u);
-  }
-  u = *((uint8_t *) &b[0x01be + 15]);
-  printf("0x%02x.\n", u);
-
-  uint8_t p1_head = *((uint8_t *) &b[0x01be + 5]); 
-  uint8_t p1_cylinder_1 = *((uint8_t *) &b[0x01be + 6]);
-  uint8_t p1_cylinder_sector = *((uint8_t *) &b[0x01be + 7]);
-  uint16_t p1_cylinder;
-
-  p1_cylinder = (p1_cylinder_sector && 0xc0) << 2;
-  p1_cylinder = p1_cylinder && p1_cylinder_1;
-  uint8_t p1_sector = p1_cylinder_sector && 0x3f;
-
-  printf("cylinder: 0x%02x, ", p1_cylinder);
-  printf("head: 0x%02x, ", p1_head);
-  printf("sector: 0x%02x.\n", p1_sector);
-
-  // LBA is a sector address.
-  // CHS is also a sector address.
-  // In order to convert one style of address to the other, you need to specify the drive geometry:
-  // . number of cylinders  
-  // . number of heads (per cylinder)  
-  // . number of sectors per track
-  // you cannot *translate* the geometry to an address; you use the geometry to convert an address.
-  // CHS address 3,2,1 is equivalent to LBA address 3150 if the drive geometry is 1020,16,63.
-
-  // Before LBA you simply had the physical mapping of a disk/
-  // https://en.wikipedia.org/wiki/Cylinder-head-sector
-
-  // Cylinder Number : (10b) 0-1024 (1024 = 2^10)
-  // Head Number     :  (8b) 0-256  (256  = 2^8)
-  // Sector Number   :  (6b) 1-64   (63   = 2^6 - 1)
-  // Total CHS address : 24b (10+8+6)
-
-  // The IBM PC/XT used a Western Digital WD1010 disk controller that used (in hardware registers) a 10-bit cylinder number.
-  // The first cylinder has address 0, so there are 1024 cylinder addresses.
+  sd_disk_read(0, &b, 0, 1); 
   
-  // The first sector (of every track) is address 1, so a 6-bit sector number can address up to 63 sectors
-  // (sector numbers 1 through 63) on each track.
-  // There is no sector address zero. It's not reserved. It doesn't exist.
-  // The subtraction of this offset is an arithmetic necessity, and is not related in any way to the boot sector. 
-
-  // A = Logical Block Address
-  // Nheads = number of heads on a disk heads-per-disk
-  // Nsectors = number of sectors on a track sectors-per-track
-  // c,h,s - is the cylinder,head,sector numbers 24-bits total (10+8+6)
-
-  // A = (c * Nheads + h) * Nsectors + (s - 1)
-
-  // e.g.
-  // for geometry 1020 16 63 of a disk with 1028160 sectors CHS 3 2 1 is LBA
-  // 3150 = (3 * 16 + 2) * 63 
-  //
-  // c 1020
-  // h 16
-  // s 63
-
-  // In my work as a software/firmware engineer developing controller firmware, device drivers for disks, and filesystem handlers,
-  // I never was concerned with or had to use the number of platters. The number of platters or that there are two possible surfaces
-  // to a platter are mechanical properties that are totally irrelevant to the drive geometry for CHS addressing.
-
-  // The C in CHS refers to the cylinder address. The disk drive has to (electro-mechanically) seek to the requested cylinder
-  // address/location so that the R/W head assembly is positioned correctly.
-
-  // The H in CHS refers to the R/W head address. The disk controller (electrically) selects the requested R/W head
-  // (after the seek is complete) by its address to access the correct track. All other R/W heads are (electrically) disabled.
-
-  // The S in CHS refers to the sector address. The disk controller (programmatically) scans each sector (after the seek and head selection)
-  // as it rotates under the (selected) R/W head, until the requested sector is located (e.g. reads the ID record of the sector,
-  // and performs an address comparison).
-
-  // Also
-  // If you're familiar with Dimensional Analysis, specifying the number of heads of a disk drive as heads per cylinder makes more sense
-  // than heads per drive.
-
-  // I understand the geometry CHS numbers, but where are the (3,2,1) tuple CHS numbers coming from?
-  // That's just an arbitrary CHS address chosen for use in examples of conversions to LBA addresses.
-
-  // BTW
-  // In end-user jargon, "disk" == disk drive.
-  // In professional HDD jargon, "disk" == disk platter.
-  
-  // The traditional limits were 512 bytes/sector × 63 sectors/track × 255 heads (tracks/cylinder) × 1024 cylinders,
-  // resulting in a limit of 8032.5 MiB for the total capacity of a disk.
-
-  // http://rjhcoding.com/avrc-sd-interface-1.php
   uint32_t ss = *((uint32_t *) &b[0x01be + 8]);
   printf("number of sectors: 0x%08x.\n", ss);
 
   ss = *((uint32_t *) &b[0x01be + 0x0c]);
   printf("number of sectors ip: 0x%08x.\n", ss);
+  
+  printf("partition 1: ");
+  uint8_t u; 
+  for (int i = 0; i < 15; i++) {
+    u = *((uint8_t *) &b[0x01be + i]);
+    printf("%02x ", u);
+  }
+  u = *((uint8_t *) &b[0x01be + 15]);
+  printf("%02x\n", u);
 
   printf("partition 2: ");
   for (int i = 0; i < 15; i++) {
     u = *((uint8_t *) &b[0x01ce + i]);
-    printf("0x%02x, ", u);
+    printf("%02x ", u);
   }
   u = *((uint8_t *) &b[0x01ce + 15]);
-  printf("0x%02x.\n", u);
+  printf("%02x\n", u);
 
   printf("partition 3: ");
   for (int i = 0; i < 15; i++) {
     u = *((uint8_t *) &b[0x01de + i]);
-    printf("0x%02x, ", u);
+    printf("%02x ", u);
   }
   u = *((uint8_t *) &b[0x01de + 15]);
-  printf("0x%02x.\n", u);
+  printf("%02x\n", u);
 
   printf("partition 4: ");
   for (int i = 0; i < 15; i++) {
     u = *((uint8_t *) &b[0x01ee + i]);
-    printf("0x%02x, ", u);
+    printf("%02x ", u);
   }
   u = *((uint8_t *) &b[0x01ee + 15]);
-  printf("0x%02x.\n", u);
+  printf("%02x\n", u);
+  
 
   uint16_t signature = *((uint16_t *) &b[0x01fe]);
   printf("signature: 0x%04x.\n", signature);
@@ -322,9 +249,9 @@ int main(void) {
   //uint16_t sectors_per_fat = *((uint16_t *) &b[0x16]);  // for FAT16
   uint32_t sectors_per_fat = *((uint32_t *) &b[0x24]);  // for FAT32
 
-  uint32_t root_dir_offset = partition_lba_begin + reserved_sectors + (sectors_per_fat * number_of_fats);
+  uint32_t root_dir_offset = 0x00100000;//4be000; //partition_lba_begin + reserved_sectors + (sectors_per_fat * number_of_fats);
 
-  sd_disk_read(0, &b, root_dir_offset, 1);
+  sd_disk_read(0, &b3, 0x1000, 1);
 
   printf("root dir at: 0x%08x.\n", root_dir_offset);
   printf("sectors per cluster: 0x%02x.\n", sectors_per_cluster);
@@ -332,19 +259,26 @@ int main(void) {
   uint8_t fn[11];
   uint8_t sf[] = "IMG";
 
+  for (int i = 0; i < 0x200; i++) {
+    printf("%02x ", b3[i]);
+  }
+  printf("\n");
+
   for (int i = 0; i < 0x200; i+=0x20) {
     if (b[i] > 0x1f && b[i] < 0x7f && b[i] != 0xe5 && b[i + 0x1a] != 0 && b[i + 0x10] != 0) {
       uint16_t starting_cluster = *((uint16_t *) &b[i + 0x1a]);
+      printf("starting cluster: 0x%02x.\n", starting_cluster);
       uint32_t file_size = *((uint32_t *) &b[i + 0x1c]);
       uint32_t file_start = root_dir_offset + sectors_per_cluster * (starting_cluster - 2); // clusters are numbered from 2
+
       for (int j = 0; j < 11; j++) {
         printf("%c", b[i+j]);
         draw_char(b[j+i], &cursor_x, &cursor_y);
         fn[j] = b[i+j];
       }
       printf("  file start: 0x%08x, file size: 0x%08x.\n", file_start, file_size);
-      if (memcmp(fn, sf, 3) == 0) {
 
+      if (memcmp(fn, sf, 3) == 0) {
         static const uint8_t t0[] = {
           0x36,   2,  0x68, 0x20 // ladscape
         };
@@ -421,7 +355,7 @@ static uint8_t sd_rx_data_block(uint8_t *buff, uint16_t len) {
 
 
 // read sector
-static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint16_t sector, uint16_t count) {
+static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint32_t sector, uint16_t count) {
   // pdrv should be 0
   //if (pdrv || !count) return RES_PARERR;
 
@@ -454,7 +388,6 @@ static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint16_t sector, uint16
 
   return count ? 0 : 1;
 }
-
 
 static uint8_t sd_ready_wait(void) {
   uint8_t res;
@@ -506,6 +439,8 @@ static void sd_power_on(void) {
   uint8_t args[6];
   uint32_t cnt = 0x1fff;
 
+  HAL_Delay(1);
+  
   SPI_CS_L;
   for (int i = 0; i < 10; i++) {
     spi_tx_8(0xff);
@@ -523,6 +458,7 @@ static void sd_power_on(void) {
   SPI_CS_L;
   spi_tx_buffer(args, sizeof(args));
   SPI_CS_H;
+
 
   SPI_CS_L;
   // wait response
@@ -776,9 +712,9 @@ static void fill_frame(void) {
       uflag = 0;
     }
 
-    SPI_CS_L;
-    spi_rx_8();
-    SPI_CS_H;
+    //SPI_CS_L;
+    //spi_rx_8();
+    //SPI_CS_H;
   }
 }
 
@@ -838,11 +774,10 @@ static void spi_init(void) {
   h_spi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   h_spi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   h_spi1.Init.NSS = SPI_NSS_SOFT;
-  h_spi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  h_spi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
   h_spi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   h_spi1.Init.TIMode = SPI_TIMODE_DISABLE;
   h_spi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  h_spi1.Init.CRCPolynomial = 10;
   if (HAL_SPI_Init(&h_spi1) != HAL_OK) {
     Error_Handler();
   }
@@ -930,10 +865,10 @@ static void lcd_gpio_init(void) {
   PD14 SPI1_CS
   */
 
-  // spi1
+  // spi1 for SD card
   GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -942,7 +877,6 @@ static void lcd_gpio_init(void) {
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  //GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 }
 
@@ -994,7 +928,7 @@ static void SystemClock_Config(void) {
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV8;
   if(HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_7) != HAL_OK) {
     while(1) {};
   }
