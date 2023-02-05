@@ -54,18 +54,12 @@
 #define CMD16    (0x40 + 16)  // SET_BLOCKLEN
 #define CMD17    (0x40 + 17)  // READ_SINGLE_BLOCK
 #define CMD18    (0x40 + 18)  // READ_MULTIPLE_BLOCK
-#define CMD23    (0x40 + 23)  // SET_BLOCK_COUNT
+#define ACMD23   (0x40 + 23)  // SET_BLOCK_COUNT
 #define CMD24    (0x40 + 24)  // WRITE_BLOCK
 #define CMD25    (0x40 + 25)  // WRITE_MULTIPLE_BLOCK
-#define CMD41    (0x40 + 41)  // SEND_OP_COND (ACMD)
+#define ACMD41   (0x40 + 41)  // SEND_OP_COND (ACMD)
 #define CMD55    (0x40 + 55)  // APP_CMD
 #define CMD58    (0x40 + 58)  // READ_OCR
-
-#define CT_MMC    0x01  // MMC ver 3
-#define CT_SD1    0x02  // SD ver 1
-#define CT_SD2    0x04  // SD ver 2
-#define CT_SDC    0x06  // SD
-#define CT_BLOCK  0x08  // Block addressing
 
 static char buffer[1];
 static char *p_buffer = buffer;
@@ -84,8 +78,9 @@ static void Error_Handler(void);
 static void MPU_Config(void);
 
 static void uart_init(void);
-static void spi_init(int);
-static void lcd_gpio_init(void);
+static void spi_init_low_speed(void);
+static void spi_init_high_speed(void);
+static void gpio_init(void);
 static void lcd_init(void);
 static void lcd_reset(void);
 static void fill_black(void);
@@ -115,7 +110,12 @@ int main(void) {
   BSP_LED_Init(LED2);
   BSP_LED_Init(LED3);
 
-  lcd_gpio_init();
+  gpio_init();
+  uart_init();
+  printf("-\n-\n");
+  spi_init_low_speed();
+  if(sd_init() != 0) printf("\nSD INIT FAILED!!\n\n");
+  spi_init_high_speed();
 
   lcd_reset();
   HAL_Delay(1);
@@ -130,26 +130,22 @@ int main(void) {
   draw_char('$', &cursor_x, &cursor_y);
   draw_char(' ', &cursor_x, &cursor_y);
 
-  printf("-\n");
-
-  uart_init();
-  spi_init(0);
-  sd_init();
-
-  if (HAL_SPI_DeInit(&h_spi1) != HAL_OK) {
-    Error_Handler();
-  }
-
-  spi_init(1);
-
   uint8_t b[512];
   uint8_t b2[512];
   uint8_t b3[512];
 
   sd_disk_read(&b, 0, 1); 
   
-  for (int i = 0; i < 0x200; i++) {
-    printf("%02x ", b[i]);
+  printf("\n");
+  for (int i = 1; i <= 0x200; i++) {
+    if (i == 1) printf("%04x:  ", 0);
+    printf("%02x ", b[i - 1]);
+    if (i % 0x20 == 0) {
+      printf("\n");
+      if (i > 1 && i < 0x200)
+        printf("%04x:  ", i);
+    }
+    else if (i % 0x8 == 0) printf(" ");
   }
   printf("\n");
 
@@ -159,6 +155,8 @@ int main(void) {
   ss = *((uint32_t *) &b[0x01be + 0x0c]);
   printf("number of sectors ip: 0x%08x.\n", ss);
   
+  printf("\n");
+
   printf("partition 1: ");
   uint8_t u; 
   for (int i = 0; i < 15; i++) {
@@ -192,12 +190,11 @@ int main(void) {
   u = *((uint8_t *) &b[0x01ee + 15]);
   printf("%02x\n", u);
 
+  printf("\n");
   uint16_t signature = *((uint16_t *) &b[0x01fe]);
-  printf("signature: 0x%04x.\n", signature);
+  printf("signature: 0x%04x.\n\n", signature);
 
-  //uint32_t partition_lba_begin = *((uint32_t *) &b[0x01c6]);
-  uint64_t partition_lba_begin = *((uint64_t *) &b[0x01be]);
-  //printf("partition at: 0x%016x.\n", partition_lba_begin);
+  uint64_t partition_lba_begin = *((uint64_t *) &b[0x01be]); // default to partition 1
 
   //sd_disk_read(&b, partition_lba_begin, 1);
   sd_disk_read(&b, 0x25f0, 1);
@@ -219,8 +216,16 @@ int main(void) {
   uint8_t fn[11];
   uint8_t sf[] = "IMG";
 
-  for (int i = 0; i < 0x200; i++) {
-    printf("%02x ", b3[i]);
+  printf("\n");
+  for (int i = 1; i <= 0x200; i++) {
+    if (i == 1) printf("%04x:  ", 0);
+    printf("%02x ", b3[i - 1]);
+    if (i % 0x20 == 0) {
+      printf("\n");
+      if (i > 1 && i < 0x200)
+        printf("%04x:  ", i);
+    }
+    else if (i % 0x8 == 0) printf(" ");
   }
   printf("\n");
 
@@ -407,7 +412,7 @@ static int sd_init(void) {
   uint8_t n, type, ocr[4];
   uint8_t sd_block;
 
-  HAL_Delay(1);                    // wait 1 mS
+  //HAL_Delay(1);                    // wait 1 mS
   
   SPI_CS_L;                        // 80 dummy bits
   for (int i = 0; i < 10; i++) {
@@ -423,8 +428,12 @@ static int sd_init(void) {
   if (sd_send_cmd(CMD8, 0x1aa) == 1) printf(", CMD8"); else return -1; // SDC V2+ http://elm-chan.org/docs/mmc/mmc_e.html
   SPI_CS_H;
 
-  do { SPI_CS_L; if (sd_send_cmd(CMD55, 0) <= 1 && sd_send_cmd(CMD41, 1UL << 30) == 0) break; SPI_CS_H; } while (1);
-  printf(", CMD55, CMD41");
+  do { SPI_CS_L; if (sd_send_cmd(CMD55, 0) <= 1 && sd_send_cmd(ACMD41, 1UL << 30) == 0) break; SPI_CS_H; } while (1);
+  printf(", CMD55, ACMD41");
+  
+  //SPI_CS_L;
+  //do { SPI_CS_L; if (sd_send_cmd(CMD1, 0) == 0) break; SPI_CS_H; } while (1);
+  //SPI_CS_H;
 
   SPI_CS_L;
   sd_addr_sectors = sd_send_cmd(CMD58, 0);
@@ -438,7 +447,14 @@ static int sd_init(void) {
   }
 
   printf(".\n");
+   
+  SPI_CS_L;                        // 80 dummy bits
+  for (int i = 0; i < 10; i++) {
+    spi_tx_8(0xff);
+  }
+  SPI_CS_H; 
 
+  return 0;
 }
 
 
@@ -737,7 +753,7 @@ static void lcd_reset(void) {
 }
 
 
-static void spi_init(int speed) {
+static void spi_init_low_speed(void) {
   h_spi1.Instance = SPI1;
   h_spi1.Init.Mode = SPI_MODE_MASTER;
   h_spi1.Init.Direction = SPI_DIRECTION_2LINES;
@@ -745,20 +761,39 @@ static void spi_init(int speed) {
   h_spi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   h_spi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   h_spi1.Init.NSS = SPI_NSS_SOFT;
-  if (speed == 0) 
-    h_spi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
-  else
-    h_spi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  h_spi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
   h_spi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   h_spi1.Init.TIMode = SPI_TIMODE_DISABLE;
   h_spi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+
   if (HAL_SPI_Init(&h_spi1) != HAL_OK) {
     Error_Handler();
   }
 }
 
+static void spi_init_high_speed(void) {
+  if (HAL_SPI_DeInit(&h_spi1) != HAL_OK) {
+    Error_Handler();
+  }
 
-static void lcd_gpio_init(void) {
+  h_spi1.Instance = SPI1;
+  h_spi1.Init.Mode = SPI_MODE_MASTER;
+  h_spi1.Init.Direction = SPI_DIRECTION_2LINES;
+  h_spi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  h_spi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+  h_spi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  h_spi1.Init.NSS = SPI_NSS_SOFT;
+  h_spi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  h_spi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  h_spi1.Init.TIMode = SPI_TIMODE_DISABLE;
+  h_spi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+
+  if (HAL_SPI_Init(&h_spi1) != HAL_OK) {
+    Error_Handler();
+  }
+}
+
+static void gpio_init(void) {
   GPIO_InitTypeDef GPIO_InitStruct;
 
   /*
