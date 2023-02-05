@@ -73,6 +73,7 @@ static char *p_buffer = buffer;
 volatile uint8_t uflag = 0;
 uint16_t cursor_x;
 uint16_t cursor_y;
+uint8_t sd_addr_sectors = 0;
 
 UART_HandleTypeDef h_uart3;
 SPI_HandleTypeDef h_spi1;
@@ -83,7 +84,7 @@ static void Error_Handler(void);
 static void MPU_Config(void);
 
 static void uart_init(void);
-static void spi_init(void);
+static void spi_init(int);
 static void lcd_gpio_init(void);
 static void lcd_init(void);
 static void lcd_reset(void);
@@ -96,9 +97,9 @@ static void spi_tx_8(uint8_t);
 static void spi_tx_buffer(uint8_t *buffer, uint16_t len);
 static uint8_t spi_rx_8(void);
 static void spi_rx_ptr(uint8_t *buff);
-static void sd_power_on(void);
+static int sd_init(void);
 static uint8_t sd_send_cmd(uint8_t, uint32_t);
-static uint8_t sd_disk_read(uint8_t, uint8_t*, uint32_t, uint16_t);
+static uint8_t sd_disk_read(uint8_t*, uint32_t, uint16_t);
 static uint8_t sd_rx_data_block(uint8_t*, uint16_t);
 static uint8_t sd_ready_wait(void);
 
@@ -115,8 +116,6 @@ int main(void) {
   BSP_LED_Init(LED3);
 
   lcd_gpio_init();
-  uart_init();
-  spi_init();
 
   lcd_reset();
   HAL_Delay(1);
@@ -133,66 +132,27 @@ int main(void) {
 
   printf("-\n");
 
-  sd_power_on();
+  uart_init();
+  spi_init(0);
+  sd_init();
 
-  uint8_t n, type, ocr[4];
-
-  SPI_CS_L;
-
-  if (sd_send_cmd(CMD0, 0) == 1) {                 // send GO_IDLE_STATE command
-    printf("sd: idle");
-
-    if (sd_send_cmd(CMD8, 0x1aa) == 1) {           // SDC V2+ accept CMD8 command, http://elm-chan.org/docs/mmc/mmc_e.html
-      printf(", sdc v2+");
-
-      for (n = 0; n < 4; n++) {                    // operation condition register
-        ocr[n] = spi_rx_8();
-      }
-
-      if (ocr[2] == 0x01 && ocr[3] == 0xaa) {      // ACMD41 with HCS bit
-        printf(", acmd41 with hcs bit");
-
-        do {
-          if (sd_send_cmd(CMD55, 0) <= 1 && sd_send_cmd(CMD41, 1UL << 30) == 0) break;
-        } while (1);
-
-        printf(", cmd55, cmd41");
-
-	if (sd_send_cmd(CMD58, 0) == 0) {          // check CCS bit
-          for (n = 0; n < 4; n++) {
-            ocr[n] = spi_rx_8();
-          }
-          printf(", ccs bit ok, sd card ready.\n");
-          //type = (ocr[0] & 0x40) ? CT_SD2 | CT_BLOCK : CT_SD2; // SDv2 (HC or SC)
-        }
-      }
-    }
-
-    /*
-    else {                                         // SDC V1 or MMC
-      type = (SD_SendCmd(CMD55, 0) <= 1 && SD_SendCmd(CMD41, 0) <= 1) ? CT_SD1 : CT_MMC;
-      do {
-        if (type == CT_SD1) {
-          if (SD_SendCmd(CMD55, 0) <= 1 && SD_SendCmd(CMD41, 0) == 0) break; // ACMD41
-        } else {
-          if (SD_SendCmd(CMD1, 0) == 0) break;     // CMD1
-        }
-      } while (1);
-      if (SD_SendCmd(CMD16, 512) != 0) type = 0;   // SET_BLOCKLEN
-    }
-    */
+  if (HAL_SPI_DeInit(&h_spi1) != HAL_OK) {
+    Error_Handler();
   }
 
-  spi_rx_8();
-
-  SPI_CS_H;
+  spi_init(1);
 
   uint8_t b[512];
   uint8_t b2[512];
   uint8_t b3[512];
 
-  sd_disk_read(0, &b, 0, 1); 
+  sd_disk_read(&b, 0, 1); 
   
+  for (int i = 0; i < 0x200; i++) {
+    printf("%02x ", b[i]);
+  }
+  printf("\n");
+
   uint32_t ss = *((uint32_t *) &b[0x01be + 8]);
   printf("number of sectors: 0x%08x.\n", ss);
 
@@ -231,7 +191,6 @@ int main(void) {
   }
   u = *((uint8_t *) &b[0x01ee + 15]);
   printf("%02x\n", u);
-  
 
   uint16_t signature = *((uint16_t *) &b[0x01fe]);
   printf("signature: 0x%04x.\n", signature);
@@ -240,7 +199,8 @@ int main(void) {
   uint64_t partition_lba_begin = *((uint64_t *) &b[0x01be]);
   //printf("partition at: 0x%016x.\n", partition_lba_begin);
 
-  sd_disk_read(0, &b, partition_lba_begin, 1);
+  //sd_disk_read(&b, partition_lba_begin, 1);
+  sd_disk_read(&b, 0x25f0, 1);
 
   // uint16_t sector_size = *((uint16_t *) &b[0x0b]);
   uint8_t sectors_per_cluster = *((uint8_t *) &b[0x0d]);
@@ -249,9 +209,9 @@ int main(void) {
   //uint16_t sectors_per_fat = *((uint16_t *) &b[0x16]);  // for FAT16
   uint32_t sectors_per_fat = *((uint32_t *) &b[0x24]);  // for FAT32
 
-  uint32_t root_dir_offset = 0x00100000;//4be000; //partition_lba_begin + reserved_sectors + (sectors_per_fat * number_of_fats);
+  uint32_t root_dir_offset = partition_lba_begin + reserved_sectors + (sectors_per_fat * number_of_fats);
 
-  sd_disk_read(0, &b3, 0x1000, 1);
+  sd_disk_read(&b3, 0x25f0, 1);
 
   printf("root dir at: 0x%08x.\n", root_dir_offset);
   printf("sectors per cluster: 0x%02x.\n", sectors_per_cluster);
@@ -307,7 +267,7 @@ int main(void) {
         lcd_write_8(0x2c);
         DC_D;
         for (int k = 0; k < 16; k++) {
-          sd_disk_read(0, &b2, (file_start + k), 1);
+          sd_disk_read(&b2, (file_start + k), 1);
           for (int l = 0; l < 512; l++) {
             lcd_write_8(b2[l]);
           }
@@ -355,7 +315,8 @@ static uint8_t sd_rx_data_block(uint8_t *buff, uint16_t len) {
 
 
 // read sector
-static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint32_t sector, uint16_t count) {
+static uint8_t sd_disk_read(uint8_t* buff, uint32_t sector, uint16_t count) {
+  uint8_t token;
   // pdrv should be 0
   //if (pdrv || !count) return RES_PARERR;
 
@@ -363,12 +324,17 @@ static uint8_t sd_disk_read(uint8_t pdrv, uint8_t* buff, uint32_t sector, uint16
   //if (Stat & STA_NOINIT) return RES_NOTRDY;
 
   // convert to byte address
-  //if (!(CardType & CT_SD2)) sector *= 512;
+  if (!sd_addr_sectors) sector *= 512;
 
   SPI_CS_L;
 
   if (count == 1) {
-    if ((sd_send_cmd(CMD17, sector) == 0) && sd_rx_data_block(buff, 512)) count = 0; // READ_SINGLE_BLOCK
+    if ((sd_send_cmd(CMD17, sector) == 0) && sd_rx_data_block(buff, 512)) count = 0; // READ_SINGLE_BLOCK 
+
+    do {
+      token = spi_rx_8();
+    } while (token == 0xfe);
+  
   } else {
 
     if (sd_send_cmd(CMD18, sector) == 0) {                                           // READ_MULTIPLE_BLOCK
@@ -410,7 +376,7 @@ static uint8_t sd_send_cmd(uint8_t cmd, uint32_t arg) {
   // transmit command
   spi_tx_8(cmd);                  // command
   spi_tx_8((uint8_t)(arg >> 24)); // argument[31..24]
-  spi_tx_8((uint8_t)(arg >> 16)); // argument[23..16]
+  spi_tx_8((uint8_t)(arg >> 16)); // argument[16..23]
   spi_tx_8((uint8_t)(arg >> 8));  // argument[15..8]
   spi_tx_8((uint8_t)arg);         // argument[7..0]
 
@@ -435,39 +401,44 @@ static uint8_t sd_send_cmd(uint8_t cmd, uint32_t arg) {
 }
 
 
-static void sd_power_on(void) {
+static int sd_init(void) {
   uint8_t args[6];
   uint32_t cnt = 0x1fff;
+  uint8_t n, type, ocr[4];
+  uint8_t sd_block;
 
-  HAL_Delay(1);
+  HAL_Delay(1);                    // wait 1 mS
   
-  SPI_CS_L;
+  SPI_CS_L;                        // 80 dummy bits
   for (int i = 0; i < 10; i++) {
     spi_tx_8(0xff);
   }
   SPI_CS_H;
 
-  // make idle state
-  args[0] = CMD0;  // CMD0:GO_IDLE_STATE
-  args[1] = 0;
-  args[2] = 0;
-  args[3] = 0;
-  args[4] = 0;
-  args[5] = 0x95; // CRC
-
   SPI_CS_L;
-  spi_tx_buffer(args, sizeof(args));
-  SPI_CS_H;
-
-
-  SPI_CS_L;
-  // wait response
-  while ((spi_rx_8() != 0x01)) {}
+  if (sd_send_cmd(CMD0, 0) == 1) printf("sd: CMD0"); else return -1;  // GO_IDLE_STATE
   SPI_CS_H;
 
   SPI_CS_L;
-  spi_tx_8(0xff);
+  if (sd_send_cmd(CMD8, 0x1aa) == 1) printf(", CMD8"); else return -1; // SDC V2+ http://elm-chan.org/docs/mmc/mmc_e.html
   SPI_CS_H;
+
+  do { SPI_CS_L; if (sd_send_cmd(CMD55, 0) <= 1 && sd_send_cmd(CMD41, 1UL << 30) == 0) break; SPI_CS_H; } while (1);
+  printf(", CMD55, CMD41");
+
+  SPI_CS_L;
+  sd_addr_sectors = sd_send_cmd(CMD58, 0);
+  SPI_CS_H;
+  
+  if (sd_addr_sectors == 1) {
+    printf(", addressin by sectors");
+  }
+  else {
+    printf(", addresing by bytes");
+  }
+
+  printf(".\n");
+
 }
 
 
@@ -766,7 +737,7 @@ static void lcd_reset(void) {
 }
 
 
-static void spi_init(void) {
+static void spi_init(int speed) {
   h_spi1.Instance = SPI1;
   h_spi1.Init.Mode = SPI_MODE_MASTER;
   h_spi1.Init.Direction = SPI_DIRECTION_2LINES;
@@ -774,7 +745,10 @@ static void spi_init(void) {
   h_spi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   h_spi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   h_spi1.Init.NSS = SPI_NSS_SOFT;
-  h_spi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
+  if (speed == 0) 
+    h_spi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
+  else
+    h_spi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   h_spi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   h_spi1.Init.TIMode = SPI_TIMODE_DISABLE;
   h_spi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -873,7 +847,7 @@ static void lcd_gpio_init(void) {
   GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  GPIO_InitStruct.Pin = GPIO_PIN_14;
+  GPIO_InitStruct.Pin = GPIO_PIN_14;                // marked as D11 PWM on nucleo board
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
@@ -886,18 +860,9 @@ static void SystemClock_Config(void) {
   System Clock source            = PLL (HSE)
   SYSCLK(Hz)                     = 216000000
   HCLK(Hz)                       = 216000000
-  AHB Prescaler                  = 1
-  APB1 Prescaler                 = 4
-  APB2 Prescaler                 = 2
   HSE Frequency(Hz)              = 8000000
-  PLL_M                          = 8
-  PLL_N                          = 432
-  PLL_P                          = 2
-  PLL_Q                          = 9
-  PLL_R                          = 7
   VDD(V)                         = 3.3
   Main regulator output voltage  = Scale1 mode
-  Flash Latency(WS)              = 7
   */
 
   RCC_ClkInitTypeDef RCC_ClkInitStruct;
@@ -914,6 +879,7 @@ static void SystemClock_Config(void) {
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 9;
   RCC_OscInitStruct.PLL.PLLR = 7;
+
   if(HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     while(1) {};
   }
@@ -929,6 +895,7 @@ static void SystemClock_Config(void) {
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV8;
+
   if(HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_7) != HAL_OK) {
     while(1) {};
   }
@@ -944,9 +911,11 @@ static void uart_init(void) {
   h_uart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   h_uart3.Init.Mode = UART_MODE_TX_RX;
   h_uart3.Init.OverSampling = UART_OVERSAMPLING_16;
+
   if (HAL_UART_Init(&h_uart3) != HAL_OK) {
     Error_Handler();
   }
+
   HAL_NVIC_SetPriority(USART3_IRQn, 0, 1);
   HAL_NVIC_EnableIRQ(USART3_IRQn);
   __HAL_UART_ENABLE_IT(&h_uart3, UART_IT_RXNE);
