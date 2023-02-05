@@ -150,6 +150,7 @@ int main(void) {
 static void sd_demo(void) {
 
   uint8_t b[512];
+  uint8_t b2[512];
 
   sd_disk_read(&b, 0, 1); 
   
@@ -299,12 +300,13 @@ static void sd_demo(void) {
         lcd_write_8(0x2c);
         DC_D;
         for (int k = 0; k < 16; k++) {
-          sd_disk_read(&b, (file_start + k), 1);
+          sd_disk_read(&b2, (file_start + k), 1);
           for (int l = 0; l < 512; l++) {
-            lcd_write_8(b[l]);
+            lcd_write_8(b2[l]);
           }
         }
         CS_H;
+	
       }
       draw_char(13, &cursor_x, &cursor_y);
     }
