@@ -1,0 +1,88 @@
+sudo parted /dev/sda
+(parted) mklabel msdos
+(parted) quit
+
+00000000: fab8 0010 8ed0 bc00 b0b8 0000 8ed8 8ec0  ................
+00000010: fbbe 007c bf00 06b9 0002 f3a4 ea21 0600  ...|.........!..
+00000020: 00be be07 3804 750b 83c6 1081 fefe 0775  ....8.u........u
+00000030: f3eb 16b4 02b0 01bb 007c b280 8a74 018b  .........|...t..
+00000040: 4c02 cd13 ea00 7c00 00eb fe00 0000 0000  L.....|.........
+
+000001b0: 0000 0000 0000 0000 0a16 936f 0000 0000  ...........o....
+
+000001f0: 0000 0000 0000 0000 0000 0000 0000 55aa  ..............U.
+
+mkpart primary fat32 1MiB 100%
+(parted) print
+Number  Start   End     Size    Type     File system  Flags
+ 1      1049kB  2003MB  2002MB  primary  fat32        lba
+ (parted) quit
+
+lsblk
+NAME        MAJ:MIN RM   SIZE RO TYPE MOUNTPOINTS
+sda           8:0    1   1,9G  0 disk 
+└─sda1        8:1    1   1,9G  0 part  
+
+00000000: fab8 0010 8ed0 bc00 b0b8 0000 8ed8 8ec0  ................
+00000010: fbbe 007c bf00 06b9 0002 f3a4 ea21 0600  ...|.........!..
+00000020: 00be be07 3804 750b 83c6 1081 fefe 0775  ....8.u........u
+00000030: f3eb 16b4 02b0 01bb 007c b280 8a74 018b  .........|...t..
+00000040: 4c02 cd13 ea00 7c00 00eb fe00 0000 0000  L.....|.........
+
+000001b0: 0000 0000 0000 0000 0a16 936f 0000 0004  ...........o....
+000001c0: 0104 0cfe c2ff 0008 0000 00a8 3b00 0000  ............;...
+
+000001f0: 0000 0000 0000 0000 0000 0000 0000 55aa  ..............U.
+
+sudo mkfs.fat -F 32 /dev/sda1
+
+00000000: fab8 0010 8ed0 bc00 b0b8 0000 8ed8 8ec0  ................
+00000010: fbbe 007c bf00 06b9 0002 f3a4 ea21 0600  ...|.........!..
+00000020: 00be be07 3804 750b 83c6 1081 fefe 0775  ....8.u........u
+00000030: f3eb 16b4 02b0 01bb 007c b280 8a74 018b  .........|...t..
+00000040: 4c02 cd13 ea00 7c00 00eb fe00 0000 0000  L.....|.........
+000001b0: 0000 0000 0000 0000 0a16 936f 0000 0004  ...........o....
+000001c0: 0104 0cfe c2ff 0008 0000 00a8 3b00 0000  ............;...
+000001f0: 0000 0000 0000 0000 0000 0000 0000 55aa  ..............U.
+00100000: eb58 906d 6b66 732e 6661 7400 0208 2000  .X.mkfs.fat... .
+00100010: 0200 0000 00f8 0000 3e00 3e00 0008 0000  ........>.>.....
+00100020: dca7 3b00 e80e 0000 0000 0000 0200 0000  ..;.............
+00100030: 0100 0600 0000 0000 0000 0000 0000 0000  ................
+00100040: 8000 29b1 fbc1 d84e 4f20 4e41 4d45 2020  ..)....NO NAME  
+00100050: 2020 4641 5433 3220 2020 0e1f be77 7cac    FAT32   ...w|.
+00100060: 22c0 740b 56b4 0ebb 0700 cd10 5eeb f032  ".t.V.......^..2
+00100070: e4cd 16cd 19eb fe54 6869 7320 6973 206e  .......This is n
+00100080: 6f74 2061 2062 6f6f 7461 626c 6520 6469  ot a bootable di
+00100090: 736b 2e20 2050 6c65 6173 6520 696e 7365  sk.  Please inse
+001000a0: 7274 2061 2062 6f6f 7461 626c 6520 666c  rt a bootable fl
+001000b0: 6f70 7079 2061 6e64 0d0a 7072 6573 7320  oppy and..press 
+001000c0: 616e 7920 6b65 7920 746f 2074 7279 2061  any key to try a
+001000d0: 6761 696e 202e 2e2e 200d 0a00 0000 0000  gain ... .......
+001001f0: 0000 0000 0000 0000 0000 0000 0000 55aa  ..............U.
+00100200: 5252 6141 0000 0000 0000 0000 0000 0000  RRaA............
+001003e0: 0000 0000 7272 4161 3c71 0700 0200 0000  ....rrAa<q......
+001003f0: 0000 0000 0000 0000 0000 0000 0000 55aa  ..............U.
+00100c00: eb58 906d 6b66 732e 6661 7400 0208 2000  .X.mkfs.fat... .
+00100c10: 0200 0000 00f8 0000 3e00 3e00 0008 0000  ........>.>.....
+00100c20: dca7 3b00 e80e 0000 0000 0000 0200 0000  ..;.............
+00100c30: 0100 0600 0000 0000 0000 0000 0000 0000  ................
+00100c40: 8000 29b1 fbc1 d84e 4f20 4e41 4d45 2020  ..)....NO NAME  
+00100c50: 2020 4641 5433 3220 2020 0e1f be77 7cac    FAT32   ...w|.
+00100c60: 22c0 740b 56b4 0ebb 0700 cd10 5eeb f032  ".t.V.......^..2
+00100c70: e4cd 16cd 19eb fe54 6869 7320 6973 206e  .......This is n
+00100c80: 6f74 2061 2062 6f6f 7461 626c 6520 6469  ot a bootable di
+00100c90: 736b 2e20 2050 6c65 6173 6520 696e 7365  sk.  Please inse
+00100ca0: 7274 2061 2062 6f6f 7461 626c 6520 666c  rt a bootable fl
+00100cb0: 6f70 7079 2061 6e64 0d0a 7072 6573 7320  oppy and..press 
+00100cc0: 616e 7920 6b65 7920 746f 2074 7279 2061  any key to try a
+00100cd0: 6761 696e 202e 2e2e 200d 0a00 0000 0000  gain ... .......
+00100df0: 0000 0000 0000 0000 0000 0000 0000 55aa  ..............U.
+00100e00: 5252 6141 0000 0000 0000 0000 0000 0000  RRaA............
+00100fe0: 0000 0000 7272 4161 3c71 0700 0200 0000  ....rrAa<q......
+00100ff0: 0000 0000 0000 0000 0000 0000 0000 55aa  ..............U.
+00104000: f8ff ff0f ffff ff0f f8ff ff0f 0000 0000  ................
+002e1000: f8ff ff0f ffff ff0f f8ff ff0f 0000 0000  ................
+
+In the case of MBR (and 1/2 KiB blocks) the information are stored in the first block (first 512 bytes) and for historical reasons and out of compatibility with various OSes the first really useful block would be the 63th. The space in-between is often used by boot-loaders for the program code for one of their levels.
+
+In the case of GPT you have the Protective MBR in the first block in order to mimic a MBR partition table (and one big partitions) for those tools that might not support it. Then comes the GPT header and GPT info until the 34th block, allowing for 128 GPT entries.

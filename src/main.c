@@ -96,10 +96,11 @@ static int sd_init(void);
 static uint8_t sd_send_cmd(uint8_t, uint32_t);
 static uint8_t sd_disk_read(uint8_t*, uint32_t, uint16_t);
 static uint8_t sd_rx_data_block(uint8_t*, uint16_t);
-static uint8_t sd_ready_wait(void);
-
+static void sd_demo(void);
 
 int main(void) {
+  uint8_t sd_ok = 0;
+
   MPU_Config();
   CPU_CACHE_Enable();
   HAL_Init();
@@ -112,10 +113,14 @@ int main(void) {
 
   gpio_init();
   uart_init();
+
   printf("-\n-\n");
+  
   spi_init_low_speed();
-  if(sd_init() != 0) printf("\nSD INIT FAILED!!\n\n");
-  spi_init_high_speed();
+  
+  if(sd_init() != 0) printf("sd init failed!\n"); else sd_ok = 1;
+  
+  if (sd_ok) spi_init_high_speed();
 
   lcd_reset();
   HAL_Delay(1);
@@ -130,30 +135,35 @@ int main(void) {
   draw_char('$', &cursor_x, &cursor_y);
   draw_char(' ', &cursor_x, &cursor_y);
 
+  if (sd_ok) sd_demo();
+
+  fill_frame();
+
+  for (;;) {
+    BSP_LED_Toggle(LED1);
+    HAL_Delay(100);
+  }
+
+}
+
+
+static void sd_demo(void) {
+
   uint8_t b[512];
-  uint8_t b2[512];
-  uint8_t b3[512];
 
   sd_disk_read(&b, 0, 1); 
   
   printf("\n");
   for (int i = 1; i <= 0x200; i++) {
-    if (i == 1) printf("%04x:  ", 0);
+    if (i == 1) printf("%08x:  ", 0);
     printf("%02x ", b[i - 1]);
     if (i % 0x20 == 0) {
       printf("\n");
       if (i > 1 && i < 0x200)
-        printf("%04x:  ", i);
+        printf("%08x:  ", i);
     }
     else if (i % 0x8 == 0) printf(" ");
   }
-  printf("\n");
-
-  uint32_t ss = *((uint32_t *) &b[0x01be + 8]);
-  printf("number of sectors: 0x%08x.\n", ss);
-
-  ss = *((uint32_t *) &b[0x01be + 0x0c]);
-  printf("number of sectors ip: 0x%08x.\n", ss);
   
   printf("\n");
 
@@ -191,39 +201,56 @@ int main(void) {
   printf("%02x\n", u);
 
   printf("\n");
-  uint16_t signature = *((uint16_t *) &b[0x01fe]);
-  printf("signature: 0x%04x.\n\n", signature);
 
-  uint64_t partition_lba_begin = *((uint64_t *) &b[0x01be]); // default to partition 1
+  uint32_t partition_lba_begin = *((uint32_t *) &b[0x01be + 8]); // default to partition 1
+  printf("partition 1 lba begin: 0x%08x.\n\n", partition_lba_begin);
 
-  //sd_disk_read(&b, partition_lba_begin, 1);
-  sd_disk_read(&b, 0x25f0, 1);
+  sd_disk_read(&b, partition_lba_begin, 1);
 
-  // uint16_t sector_size = *((uint16_t *) &b[0x0b]);
+  uint16_t bytes_per_sector = *((uint16_t *) &b[0x0b]);
   uint8_t sectors_per_cluster = *((uint8_t *) &b[0x0d]);
   uint16_t reserved_sectors = *((uint16_t *) &b[0x0e]);
   uint8_t number_of_fats = *((uint8_t *) &b[0x10]);
-  //uint16_t sectors_per_fat = *((uint16_t *) &b[0x16]);  // for FAT16
   uint32_t sectors_per_fat = *((uint32_t *) &b[0x24]);  // for FAT32
+  //uint16_t sectors_per_fat = *((uint16_t *) &b[0x16]);  // for FAT16
+  uint32_t root_directory_first_cluster = *((uint32_t *) &b[0x2c]);
+  
+  //ss = *((uint32_t *) &b[0x01be + 0x0c]);
+  //printf("number of sectors ip: 0x%08x.\n", ss);
 
-  uint32_t root_dir_offset = partition_lba_begin + reserved_sectors + (sectors_per_fat * number_of_fats);
+  uint16_t signature = *((uint16_t *) &b[0x1fe]);
 
-  sd_disk_read(&b3, 0x25f0, 1);
+  printf("[0x0b] bytes per sector: 0x%04x.\n", bytes_per_sector);
+  if (bytes_per_sector != 0x200) printf("something wrong, shuld be 0x200.\n");
+  printf("[0x0d] sectors per cluster: 0x%02x.\n", sectors_per_cluster); // 1, 2, 4, 8, 16, 32, 64, 128
+  printf("[0x0e] reserved sectors: 0x%04x.\n", reserved_sectors); // usualy 0x20
+  printf("[0x10] number of fats: 0x%02x.\n", number_of_fats);
+  if (number_of_fats != 0x02) printf("something wrong, shuld be 0x02.\n");
+  printf("[0x24] sectors per fat: 0x%08x.\n", sectors_per_fat); // depends on disk size
+  printf("[0x2c] root directory first cluster: 0x%08x.\n", root_directory_first_cluster); // usually 2
+  printf("[0x1fe] signature: 0x%04x.\n", signature);
+  if (signature != 0xaa55) printf("something wrong, shuld be 0xaa55.\n");
+  printf("\n");
 
-  printf("root dir at: 0x%08x.\n", root_dir_offset);
-  printf("sectors per cluster: 0x%02x.\n", sectors_per_cluster);
+  uint32_t fat_begin_lba = partition_lba_begin + reserved_sectors;
+  uint32_t cluster_begin_lba = partition_lba_begin + reserved_sectors + (number_of_fats * sectors_per_fat);
+
+  printf("fat begin lba: 0x%08x.\n", fat_begin_lba);
+  printf("cluster begin lba (root dir): 0x%08x.\n", cluster_begin_lba);
+
+  sd_disk_read(&b, cluster_begin_lba, 1);
 
   uint8_t fn[11];
   uint8_t sf[] = "IMG";
 
   printf("\n");
   for (int i = 1; i <= 0x200; i++) {
-    if (i == 1) printf("%04x:  ", 0);
-    printf("%02x ", b3[i - 1]);
+    if (i == 1) printf("%08x:  ", cluster_begin_lba);
+    printf("%02x ", b[i - 1]);
     if (i % 0x20 == 0) {
       printf("\n");
       if (i > 1 && i < 0x200)
-        printf("%04x:  ", i);
+        printf("%08x:  ", cluster_begin_lba + i);
     }
     else if (i % 0x8 == 0) printf(" ");
   }
@@ -234,7 +261,7 @@ int main(void) {
       uint16_t starting_cluster = *((uint16_t *) &b[i + 0x1a]);
       printf("starting cluster: 0x%02x.\n", starting_cluster);
       uint32_t file_size = *((uint32_t *) &b[i + 0x1c]);
-      uint32_t file_start = root_dir_offset + sectors_per_cluster * (starting_cluster - 2); // clusters are numbered from 2
+      uint32_t file_start = cluster_begin_lba + sectors_per_cluster * (starting_cluster - 2); // clusters are numbered from 2
 
       for (int j = 0; j < 11; j++) {
         printf("%c", b[i+j]);
@@ -272,9 +299,9 @@ int main(void) {
         lcd_write_8(0x2c);
         DC_D;
         for (int k = 0; k < 16; k++) {
-          sd_disk_read(&b2, (file_start + k), 1);
+          sd_disk_read(&b, (file_start + k), 1);
           for (int l = 0; l < 512; l++) {
-            lcd_write_8(b2[l]);
+            lcd_write_8(b[l]);
           }
         }
         CS_H;
@@ -282,18 +309,6 @@ int main(void) {
       draw_char(13, &cursor_x, &cursor_y);
     }
   }
-
-  //for (int i = 0; i < 512; i++) {
-  //  printf("%x ", b[i]);
-  //}
-
-  fill_frame();
-
-  for (;;) {
-    BSP_LED_Toggle(LED1);
-    HAL_Delay(100);
-  }
-
 }
 
 
@@ -304,31 +319,21 @@ static uint8_t sd_rx_data_block(uint8_t *buff, uint16_t len) {
     token = spi_rx_8();
   } while (token == 0xff);
 
-  // invalid response
-  if (token != 0xfe) return 0;
-
-  // receive data
+  if (token != 0xfe) return 0;  // invalid response
+  
   do {
-    spi_rx_ptr(buff++);
+    spi_rx_ptr(buff++);  // receive data
   } while (len--);
 
-    // discard CRC
-    spi_rx_8();
-    spi_rx_8();
-    return 1;
+  spi_rx_8();  // discard CRC
+  spi_rx_8();
+  return 1;
 }
 
 
 // read sector
 static uint8_t sd_disk_read(uint8_t* buff, uint32_t sector, uint16_t count) {
   uint8_t token;
-  // pdrv should be 0
-  //if (pdrv || !count) return RES_PARERR;
-
-  // no disk
-  //if (Stat & STA_NOINIT) return RES_NOTRDY;
-
-  // convert to byte address
   if (!sd_addr_sectors) sector *= 512;
 
   SPI_CS_L;
@@ -341,7 +346,6 @@ static uint8_t sd_disk_read(uint8_t* buff, uint32_t sector, uint16_t count) {
     } while (token == 0xfe);
   
   } else {
-
     if (sd_send_cmd(CMD18, sector) == 0) {                                           // READ_MULTIPLE_BLOCK
 
       do {
@@ -353,53 +357,38 @@ static uint8_t sd_disk_read(uint8_t* buff, uint32_t sector, uint16_t count) {
     }
   }
 
-  SPI_CS_H;
-
   spi_rx_8();
 
+  SPI_CS_H;
+  
   return count ? 0 : 1;
-}
-
-static uint8_t sd_ready_wait(void) {
-  uint8_t res;
-
-  // if SD goes ready, receives 0xff
-  do {
-    res = spi_rx_8();
-  } while (res != 0xff);
-
-  return res;
 }
 
 
 static uint8_t sd_send_cmd(uint8_t cmd, uint32_t arg) {
   uint8_t crc, res;
 
-  // wait SD ready
-  if (sd_ready_wait() != 0xff) return 0xff;
+  do {
+    res = spi_rx_8();
+  } while (res != 0xff);          // wait SD ready
 
-  // transmit command
-  spi_tx_8(cmd);                  // command
+  spi_tx_8(cmd);                  // transmit command
   spi_tx_8((uint8_t)(arg >> 24)); // argument[31..24]
   spi_tx_8((uint8_t)(arg >> 16)); // argument[16..23]
   spi_tx_8((uint8_t)(arg >> 8));  // argument[15..8]
   spi_tx_8((uint8_t)arg);         // argument[7..0]
 
-  // prepare CRC
   if (cmd == CMD0) crc = 0x95;
   else if (cmd == CMD8) crc = 0x87;
   else crc = 1;
 
-  // transmit CRC
-  spi_tx_8(crc);
+  spi_tx_8(crc);                  // transmit CRC
 
-  // skip a stuff byte when STOP_TRANSMISSION
-  if (cmd == CMD12) spi_rx_8();
+  if (cmd == CMD12) spi_rx_8();   // skip a stuff byte when STOP_TRANSMISSION
 
-  // receive response
   uint8_t n = 10;
   do {
-    res = spi_rx_8();
+    res = spi_rx_8();             // receive response
   } while ((res & 0x80) && --n);
 
   return res;
@@ -699,9 +688,6 @@ static void fill_frame(void) {
       uflag = 0;
     }
 
-    //SPI_CS_L;
-    //spi_rx_8();
-    //SPI_CS_H;
   }
 }
 
